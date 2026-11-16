@@ -1,0 +1,74 @@
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+
+# Virtual environments (the installer recreates .venv)
+.venv/
+venv/
+env/
+
+# ── UniMate runtime outputs (regenerated / downloadable) ────────────────────
+# Checkpoints, samples, imported rigs and the UniML3D dataset are all
+# reproduced locally and must not be committed.
+outputs/
+dataset/
+data/
+
+# ── OS / editor ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+assets/dataset_overview.png
+
+# ---- merged from AssetFurnace (studio) ----
+.env
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ruff_cache/
+output/
+
+# Personal/local-network artifacts.
+/scripts/image_gallery.py
+
+# Investigation/session logs.
+/journal/
+
+# Reference photos exchanged between collaborators.
+/images_for_you/
+
+# Multi-GB backend checkouts.
+/vendor/
+
+# hunyuan_mlx weights and outputs are downloaded, not committed.
+/hunyuan_mlx/shape/weights/
+/hunyuan_mlx/paint/weights/
+/hunyuan_mlx/paint/outputs/
+/hunyuan_mlx/shape/outputs/
+
+# Generated video content.
+videos/
+
+# Reference meshes and source art used to evaluate backends.
+assets_to_test/
+
+# Per-character rigs and animations.
+characters/
+
+# Own run records; the template stays tracked.
+manifests/*.json
+!manifests/example-trellis2.json
+
+# Private agent rules.
+AGENTS.local.md
+CLAUDE.local.md
+
+.venv-studio/
+models/

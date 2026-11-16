@@ -1,0 +1,664 @@
+// Create: one sheet that asks "start from" and "I want", then a runner that carries one
+// thing through every step it needs, using the same job APIs as the Steps panel.
+
+import { HAVES, WANTS, ALLOWED, STEP_LABELS, planFor, stopAfter, composePrompt, normalizePromptText, troubleFor } from './plan.js';
+import { plainError } from './jobs.js';
+import { openPromptGuide, isGuideLink } from './guide.js';
+import { runMotionImport } from './motion.js';
+import { finishDetailSettings } from './library.js';
+
+const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const PICTURE_TYPES = /\.(png|jpe?g|webp)$/i;
+const PICTURE_EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+
+/** A file size in the unit a person reads: "0.0 MB" for a tiny screenshot says nothing. */
+export function fileSizeText(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${Math.floor(bytes / 1024)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+/**
+ * The picture on the clipboard (a screenshot, "Copy image" in a browser), as a File Create can
+ * take, or null when the clipboard holds no PNG, JPG or WebP. Clipboard images often arrive with
+ * no usable name, so they get one that carries the right extension.
+ */
+export function pastedPicture(clipboard, now = Date.now) {
+  const image = [...(clipboard?.files || [])].find((file) => PICTURE_EXTENSIONS[file.type]);
+  if (!image) return null;
+  if (PICTURE_TYPES.test(image.name || '')) return image;
+  return new File([image], `pasted-${now()}.${PICTURE_EXTENSIONS[image.type]}`, { type: image.type });
+}
+
+/**
+ * Whether a GLB's bytes describe a model that already has a skeleton: a skin (joints bound to
+ * a mesh), or a mesh whose vertices carry joint/weight attributes. Only the JSON chunk is read.
+ * Anything unreadable counts as unrigged, so the ordinary rig step still runs.
+ */
+export function glbHasSkeleton(buffer) {
+  try {
+    if (!buffer || buffer.byteLength < 20) return false;
+    const view = new DataView(buffer);
+    if (view.getUint32(0, true) !== 0x46546c67) return false;   // 'glTF'
+    let offset = 12;   // magic, version, length
+    while (offset + 8 <= buffer.byteLength) {
+      const length = view.getUint32(offset, true);
+      const type = view.getUint32(offset + 4, true);
+      offset += 8;
+      if (type === 0x4e4f534a) {   // 'JSON'
+        const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, offset, length)));
+        if (Array.isArray(json.skins) && json.skins.length) return true;
+        const meshes = Array.isArray(json.meshes) ? json.meshes : [];
+        return meshes.some((mesh) => (mesh.primitives || []).some((prim) => prim.attributes && 'JOINTS_0' in prim.attributes));
+      }
+      offset += length;
+    }
+  } catch {
+    /* not a readable GLB: treat it as unrigged */
+  }
+  return false;
+}
+
+/**
+ * The picture job's settings from Create's choices. A new seed each time by default, so the
+ * same prompt gives fresh tries; a fixed seed gives the same picture back.
+ */
+export function pictureSettings({ size = 1024, steps = 8, newEachTime = true, seed = 42 } = {}, random = Math.random) {
+  const side = [512, 768, 1024].includes(Number(size)) ? Number(size) : 1024;
+  const count = Math.max(1, Math.min(50, Math.round(Number(steps)) || 10));
+  const fixed = Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : 42;
+  return { width: side, height: side, steps: count, seed: newEachTime ? freshSeed(random) : fixed };
+}
+
+/** The saved controls to offer when drawing a Library picture again, or nothing for older pictures. */
+export function retryPictureSettings(settings) {
+  if (!settings || typeof settings !== 'object') return null;
+  const steps = Number(settings.steps);
+  const seed = Number(settings.seed);
+  if (!Number.isFinite(steps) || !Number.isSafeInteger(seed)) return null;
+  const restored = { steps: Math.max(1, Math.min(50, Math.round(steps))), seed, touched: true };
+  const width = Number(settings.width), height = Number(settings.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) restored.size = 1024;
+  else if (width === height && [512, 768, 1024].includes(width)) restored.size = width;
+  return restored;
+}
+
+/**
+ * Create's picture size and steps for one picture engine (the catalogue's picture_engines entry):
+ * its own defaults, and more steps when the picture is the end product rather than a 3D source.
+ */
+export function pictureDefaults(engine, pictureOnly = false) {
+  const defaults = engine?.defaults || {};
+  return { size: defaults.width || 1024, steps: (pictureOnly && engine?.picture_only_steps) || defaults.steps || 8 };
+}
+
+/**
+ * Whether Create offers a slot for your own back picture: a picture you upload, built by Pixal3D
+ * (the only engine that reads a back) once its multi-view weights are in. No drawing is needed,
+ * so it does not wait for a picture engine. Not for a prop sheet, which has no back.
+ */
+export function backSlotShown({ have, want, engine }, frontBack, steps) {
+  return have === 'picture' && engine === 'pixal3d' && want !== 'set' && Boolean(frontBack?.shape_ready) && steps.includes('model');
+}
+
+/** A new random seed, so trying again gives a different result. */
+export function freshSeed(random = Math.random) {
+  return Math.floor(random() * 2147483647);
+}
+
+export function preloadPicture(url, ImageCtor = globalThis.Image) {
+  if (!ImageCtor) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const image = new ImageCtor();
+    let settled = false;
+    const done = (error) => { if (settled) return; settled = true; error ? reject(error) : resolve(); };
+    image.onload = () => done();
+    image.onerror = () => done(new Error('The picture preview could not be loaded.'));
+    image.src = url;
+    image.decode?.().then(() => done(), () => {});
+  });
+}
+
+export function fitTextarea(textarea) {
+  textarea.style.height = 'auto';
+  const border = Math.max(0, (textarea.offsetHeight || 0) - (textarea.clientHeight || 0));
+  textarea.style.height = textarea.scrollHeight + border + 'px';
+  textarea.style.overflowY = 'hidden';
+}
+
+export function rerenderKeepingScroll(container, render) {
+  const scrollTop = container.scrollTop;
+  render();
+  container.scrollTop = scrollTop;
+}
+
+export function detailStates(details) {
+  return Object.fromEntries([...details].map((detail) => [detail.dataset.detail, detail.open]));
+}
+
+/** Show the Create sheet over the viewer. `onStart(plan)` runs a chain; `onRigDone(url, name,
+ *  path)` shows a rig source's finished motion (a direct /api/motion/import job, no chain). */
+export function openCreate({ stage, recipes, engines, presets, motionPrompts = [], frontBack = null, pictureEngines = [], machinePresets = [], prefill = null, onStart, onReview = null, onRigDone = null, onSourceChange = null }) {
+  const sheet = document.createElement('div');
+  sheet.className = 'sheet';
+  stage.appendChild(sheet);
+  let textResize = null;
+  let firstRender = true;
+  let sourceRevision = 0;
+  let builtins = [];
+  const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null, preview: null,
+    backFile: null, backPreview: null, fileRigged: false, review: false,
+    rigSrc: 'upload', rigFile: null, rigPath: '', rigBuiltin: '',
+    engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
+    motionPrompt: motionPrompts[0]?.text || '',
+    motion: { cfg: 3, reps: 1, loop: false },
+    pic: { size: 1024, steps: 8, newEachTime: true, seed: 42, touched: false }, keep: false, hero: false,
+    details: {},
+    picEngine: pictureEngines.find((e) => e.installed)?.id || null,   // listed in the order we suggest for this machine
+    frontBack: Boolean(frontBack?.ready),   // the best result by default, when it can run
+    preset: '', presetFinish: { finish_detail: null, texture_size: null } };  // a chosen machine preset, and its Finish choices
+  // the rig source's built-in examples (crab, dragon, ...); fetched once, then re-rendered
+  fetch('/api/motion/builtins').then((r) => r.json()).then((answer) => {
+    builtins = answer.builtins || [];
+    state.rigBuiltin = state.rigBuiltin || builtins[0]?.name || '';
+    if (builtins.length && state.rigSrc === 'upload' && !state.rigFile) state.rigSrc = 'builtin';
+    if (sheet.isConnected) render();
+  }).catch(() => { /* the server will refuse the run if it matters */ });
+  // size and steps follow the picture engine and whether the picture is the end product, until you set them
+  const picEngine = () => pictureEngines.find((e) => e.id === state.picEngine) || null;
+  const fitPicture = (pictureOnly) => { if (!state.pic.touched) Object.assign(state.pic, pictureDefaults(picEngine(), pictureOnly)); };
+  // a machine preset sets several controls at once; any control the user then changes still wins
+  const applyMachinePreset = (preset) => {
+    if (!preset) { state.presetFinish = { finish_detail: null, texture_size: null }; return; }
+    if (preset.picture_engine && pictureEngines.some((e) => e.installed && e.id === preset.picture_engine)) {
+      state.picEngine = preset.picture_engine;
+      state.pic.touched = false;   // size and steps follow the engine again
+    }
+    if (preset.front_and_back !== undefined) state.frontBack = preset.front_and_back;
+    if (preset.motion_repetitions) state.motion.reps = Number(preset.motion_repetitions);
+    if (preset.motion_cfg_scale !== undefined) state.motion.cfg = Number(preset.motion_cfg_scale);
+    state.presetFinish = { finish_detail: preset.finish_detail ?? null, texture_size: preset.texture_size ?? null };
+  };
+  // what Finish should do, from the chosen preset's detail and texture; Hero face still wins
+  const finishFor = (active) => {
+    if (!active.includes('finished')) return null;
+    return presetFinishSettings(state.presetFinish, { hero: heroWanted(state, active, state.engine === 'pixal3d') });
+  };
+  // "Draw another picture": the picture's own description, word for word, so nothing is added twice
+  if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
+  if (prefill?.want) state.want = prefill.want;
+  if (prefill?.have) state.have = prefill.have;
+  if (prefill?.path) { state.rigSrc = 'path'; state.rigPath = prefill.path; }
+  if (prefill?.builtin) { state.rigSrc = 'builtin'; state.rigBuiltin = prefill.builtin; }
+  const retryPicture = retryPictureSettings(prefill?.pictureSettings);
+  if (retryPicture) Object.assign(state.pic, retryPicture);
+  // paste a picture (Ctrl+V) anywhere while the sheet is open; text pastes are left alone
+  const onPaste = (e) => {
+    const picture = pastedPicture(e.clipboardData);
+    if (!picture) return;
+    e.preventDefault();
+    takeFile(picture);
+  };
+  document.addEventListener('paste', onPaste);
+  // the chosen picture, shown back so you can tell it is the right one; the URL is released when it changes
+  const setFile = (file, { deferPreviewRevoke = false } = {}) => {
+    const previousPreview = state.preview;
+    state.file = file;
+    sourceRevision += 1;
+    onSourceChange?.(file);
+    state.preview = file && (file.type.startsWith('image/') || PICTURE_TYPES.test(file.name)) ? URL.createObjectURL(file) : null;
+    if (previousPreview && !deferPreviewRevoke) URL.revokeObjectURL(previousPreview);
+    return previousPreview;
+  };
+  const setBack = (file) => {
+    if (state.backPreview) URL.revokeObjectURL(state.backPreview);
+    state.backFile = file;
+    state.backPreview = file ? URL.createObjectURL(file) : null;
+  };
+  // run by closeSheet too, so a sheet closed from outside (a Library click) leaves no listener behind
+  sheet.onSheetClose = () => { document.removeEventListener('paste', onPaste); textResize?.disconnect(); setFile(null); setBack(null); };
+  const close = () => { sheet.onSheetClose(); sheet.remove(); };
+
+  const render = () => {
+    const scrollTop = sheet.scrollTop;
+    Object.assign(state.details, detailStates(sheet.querySelectorAll('details[data-detail]')));
+    textResize?.disconnect();
+    textResize = null;
+    if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);
+    const installedPictures = pictureEngines.filter((e) => e.installed);
+    const pixal = state.engine === 'pixal3d';
+    // an uploaded GLB that already has a skeleton goes straight to UniMate's motion step
+    const riggedUpload = state.have === 'model' && state.fileRigged;
+    // your own back replaces the drawn one, so the plan has no "Back picture" step to run
+    const plan = planFor(state.have, state.want, { frontBack: state.frontBack && pixal && Boolean(frontBack?.ready) && !state.backFile });
+    if (state.stop && !plan.includes(state.stop)) state.stop = null;
+    const active = stopAfter(plan, state.stop);
+    fitPicture(!active.includes('model') && !active.includes('back'));   // as the server reads it: no 3D build after it
+    const backSlot = backSlotShown(state, frontBack, active);
+    if (!backSlot && state.backFile) setBack(null);
+    const back = backSlot ? `<div class="drop" data-backdrop tabindex="0" role="button">${state.backFile
+      ? `${state.backPreview ? `<img class="droppreview" src="${state.backPreview}" alt="Your back picture">` : ''}<b>Back: ${esc(state.backFile.name)}</b><br><span class="hint">${fileSizeText(state.backFile.size)} · click or drop another to replace</span> <button type="button" class="ghost" data-backclear>Remove</button>`
+      : '<b>Have a back view too?</b> Drop it here (optional).<br><span class="hint">Same pose, size and framing as the front, seen from directly behind. The 3D model is then built from both.</span>'}</div>
+      <input type="file" data-backfile hidden accept=".png,.jpg,.jpeg,.webp">` : '';
+    const tipKey = state.have === 'idea' ? state.want : state.have === 'picture' ? 'upload' : null;
+    const recipe = recipes?.goals?.[state.want];
+    const quick = [['character', 'idea', 'Make a character'], ['prop', 'idea', 'Make props'], ['picture', 'idea', 'Make a picture'], ['character', 'model', 'Rig and animate my model']];
+    // what a text-motion plan says about its source: a rig is ready as it is, an upload's
+    // skeleton is detected, and a generated model's own skeleton is animated as it is
+    const motionIntro = () => {
+      if (state.have === 'rig') return '';
+      const reviewBox = `<label class="check"><input type="checkbox" data-review ${state.review ? 'checked' : ''}><span>Review the joint labels first <span class="hint">opens the review sheet; useful when the bone names are non-standard</span></span></label>`;
+      if (riggedUpload) return `<p class="hint">This model already has a skeleton, so UniMate animates its own bones — no re-rigging.</p>${reviewBox}`;
+      if (state.have === 'model') return '<p class="hint">This model has no skeleton, and UniMate needs one to animate it. Start from an idea or a picture, or upload a rigged GLB.</p>';
+      return `<p class="hint">UniMate animates the model's own skeleton — no auto-rig.</p>${reviewBox}`;
+    };
+    // "A rig": a built-in example, an uploaded rigged GLB/glTF/FBX, or a path on this machine
+    const rigSource = () => `<label class="field">Rig<select data-rigsrc>
+        ${builtins.map((b) => `<option value="${esc(b.name)}" ${state.rigSrc === 'builtin' && b.name === state.rigBuiltin ? 'selected' : ''}>${esc(b.label)} (built-in)</option>`).join('')}
+        <option value="upload" ${state.rigSrc === 'upload' ? 'selected' : ''}>Upload a rigged GLB / glTF / FBX…</option>
+        <option value="path" ${state.rigSrc === 'path' ? 'selected' : ''}>A file on this machine…</option>
+      </select></label>
+      <input type="file" data-rigupload accept=".glb,.gltf,.fbx" hidden>
+      <div class="drop" data-rigdrop tabindex="0" role="button" ${state.rigSrc === 'upload' ? '' : 'hidden'}>${state.rigFile ? esc(state.rigFile.name) : 'Drop a rigged GLB / glTF / FBX here, or click to choose'}</div>
+      <input type="text" data-rigpath placeholder="assets/examples/crab/Crab.glb" value="${esc(state.rigPath)}" ${state.rigSrc === 'path' ? '' : 'hidden'}>`;
+    const source = state.have === 'rig' ? rigSource()
+      : state.have === 'idea'
+      ? `<label class="field">Describe it<textarea data-k="text" rows="3" placeholder="${state.want === 'character' ? 'A stylised orc blacksmith with short tusks, a braided beard and heavy boots' : state.want === 'motion' ? 'A little robot waiter balancing a tray of teacups' : state.want === 'picture' ? 'Concept art of an orc blacksmith at a glowing forge' : 'A weathered wooden tavern barrel with iron bands'}">${esc(state.text)}</textarea></label>
+         ${recipe?.wording ? `<label class="check addline"><input type="checkbox" data-k="recipe" ${state.useRecipe ? 'checked' : ''}><span><b>We add:</b> ${esc(recipe.wording)}</span></label>` : ''}
+         <div class="warnings" aria-live="polite"></div>`
+      : `<div class="drop" data-drop tabindex="0" role="button">${sourceDropContent()}</div>`;
+    sheet.innerHTML = `<form class="sheet-card" novalidate>
+      <div class="sheet-top"><h2>What should we <span>make?</span></h2><button type="button" class="ghost" data-close>Cancel</button></div>
+      <div class="quick">${quick.map(([w, h, t]) => `<button type="button" class="qs${w === state.want && h === state.have ? ' on' : ''}" data-w="${w}" data-h="${h}">${t}</button>`).join('')}</div>
+      <div class="q"><span class="qn">1</span><b>Start from</b>${tipKey ? `<button type="button" class="tipsbtn" data-tips aria-expanded="${state.tips}">Tips for best results</button>` : ''}</div>
+      ${tipKey && state.tips ? `<div class="tipsbox"><b>${esc(recipes?.goals?.[tipKey]?.label || '')}</b><ul>${(recipes?.goals?.[tipKey]?.tips || []).map((t) => `<li>${t}</li>`).join('')}</ul></div>` : ''}
+      <div class="seg haves">${Object.entries(HAVES).map(([k, v]) => `<button type="button" aria-pressed="${k === state.have}" data-have="${k}">${v}</button>`).join('')}</div>
+      ${source}
+      ${back}
+      <input type="file" data-file hidden accept="${state.have === 'model' ? '.glb' : '.png,.jpg,.jpeg,.webp'}">
+      <div class="q"><span class="qn">2</span><b>I want</b></div>
+      <div class="wants">${Object.entries(WANTS).map(([k, v]) => { const ok = ALLOWED[state.have][k]; return `<button type="button" class="kind${ok === true ? '' : ' off'}" data-want="${k}" aria-pressed="${k === state.want}" ${ok === true ? '' : `disabled data-tip="${esc(ok)}"`}><b>${v.label}</b><small>${v.hint}</small></button>`; }).join('')}</div>
+      ${machinePresets.length ? `<label class="field">Preset<select data-preset-tier>
+          <option value="" ${state.preset === '' ? 'selected' : ''}>Auto — pick what fits this machine</option>
+          ${machinePresets.map((p) => `<option value="${esc(p.id)}" ${state.preset === p.id ? 'selected' : ''}>${esc(p.label)} · ${esc(p.for)}</option>`).join('')}
+        </select><span class="hint">Sets the picture engine, front + back, finish detail, texture size and motion strength at once. You can still change any of them afterwards.</span></label>` : ''}
+      <div class="q"><span class="qn">3</span><b>Steps</b><span class="hint">click a step to stop there</span></div>
+      <div class="path">${plan.map((s, i) => `${i ? '<span class="arr">→</span>' : ''}<button type="button" class="pstep${active.includes(s) ? '' : ' skip'}" data-stop="${s}">${STEP_LABELS[s]}</button>`).join('')}</div>
+      ${heroChoice(state, active, pixal)}
+      ${active.includes('animated') ? `<label class="field">First move<select data-k="move">${presets.filter((p) => !p.take).map((p) => `<option value="${esc(p.id)}" ${p.id === state.firstMove ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>` : ''}
+      ${active.includes('motion') ? `${motionIntro()}<label class="field">Motion prompt<span class="hint">One sentence in UniMate's style: start with “An object”, name one motion, not the character.</span></label>
+        <div class="moves" role="group" aria-label="Motion prompts">${motionPrompts.map((p) => `<button type="button" class="chip" data-mprompt="${esc(p.text)}" aria-pressed="${p.text === state.motionPrompt}">${esc(p.label)}</button>`).join('')}</div>
+        <textarea data-k="motiontext" rows="2" maxlength="400" placeholder="An object walks forward.">${esc(state.motionPrompt)}</textarea>
+        <details class="adv"><summary>Advanced: motion</summary>
+          <label class="field">Samples<select data-k="mreps">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${n === state.motion.reps ? 'selected' : ''}>${n}${n === 1 ? ' sample' : ` samples — pick the best`}</option>`).join('')}</select></label>
+          <label class="field">Prompt strength <output data-o="mcfg">${Number(state.motion.cfg).toFixed(1)}</output><input type="range" data-k="mcfg" min="1" max="8" step="0.5" value="${state.motion.cfg}"></label>
+          <label class="check"><input type="checkbox" data-k="mloop" ${state.motion.loop ? 'checked' : ''}><span>Loop <span class="hint">crossfades the clip into itself, so it repeats without a jump.</span></span></label>
+        </details>` : ''}
+      ${active.includes('picture') ? `<details class="adv" data-detail="picture" ${state.details.picture ? 'open' : ''}><summary>Advanced: picture settings</summary>
+        <div class="picset">
+          ${installedPictures.length > 1 ? `<label class="field">Picture engine<select data-k="picengine">${installedPictures.map((e) => `<option value="${esc(e.id)}" ${e.id === state.picEngine ? 'selected' : ''}>${esc(e.label)}${e.suggested ? ' · suggested for this machine' : ''} · ${esc(e.license?.name || '')}</option>`).join('')}</select></label>` : ''}
+          <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => [v, v === (picEngine()?.defaults?.width || 1024) ? `${t} · recommended` : t]).map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          <label class="field">Steps<input type="number" data-pic="steps" min="1" max="50" value="${state.pic.steps}"><span class="hint">Each extra step adds the same time again.</span></label>
+          <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>
+          ${state.pic.newEachTime ? '' : `<label class="field">Seed<input type="number" data-pic="seed" step="1" value="${state.pic.seed}"></label>`}
+        </div></details>` : ''}
+      ${active.includes('model') ? `<details class="adv" data-detail="model" ${state.details.model ? 'open' : ''}><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' && !state.backFile ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
+      <p class="error" data-error hidden></p>
+      <div data-rigout class="motion-out" hidden></div>
+      <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ` · the picture uses ${esc(picEngine()?.label || 'the picture engine')}, run on this machine` : ''}</span><button type="submit" class="primary">Make it</button></div>
+    </form>`;
+    wire(active);
+  };
+
+  const sourceDropContent = () => state.file
+    ? `${state.preview ? `<img class="droppreview" data-source-preview src="${state.preview}" alt="The picture you chose">` : ''}<b data-source-name>${esc(state.file.name)}</b><br><span class="hint"><span data-source-size>${fileSizeText(state.file.size)}</span> · click${state.have === 'picture' ? ', drop or paste' : ' or drop'} another to replace</span>`
+    : `Drop ${state.have === 'picture' ? 'a picture (PNG, JPG, WebP)' : 'a 3D model (GLB)'} here, ${state.have === 'picture' ? 'paste one (Ctrl+V), ' : ''}or click to choose`;
+
+  const updateSourcePreview = () => {
+    const drop = sheet.querySelector('[data-drop]');
+    if (!drop) return true;
+    const image = drop.querySelector('[data-source-preview]');
+    const name = drop.querySelector('[data-source-name]');
+    const size = drop.querySelector('[data-source-size]');
+    if (image && state.preview && name && size) {
+      image.src = state.preview;
+      name.textContent = state.file.name;
+      size.textContent = fileSizeText(state.file.size);
+    } else drop.innerHTML = sourceDropContent();
+    return true;
+  };
+
+  const warn = () => {
+    const box = sheet.querySelector('.warnings');
+    if (!box) return;
+    box.innerHTML = troubleFor(state.text, state.want, recipes).map((w) => `<p class="warning">“${esc(w.word)}”: ${esc(w.message)}</p>`).join('');
+  };
+
+  const takeFile = (file) => {
+    if (!file) return;
+    setFile(file);
+    const isGlb = /\.glb$/i.test(file.name);
+    state.have = isGlb ? 'model' : PICTURE_TYPES.test(file.name) ? 'picture' : state.have;
+    state.fileRigged = false;
+    state.review = false;
+    render();
+    // a GLB may already carry a skeleton; read only its JSON chunk, and re-plan if it does
+    if (isGlb) {
+      file.arrayBuffer().then((buffer) => {
+        if (state.file !== file) return;   // replaced while reading
+        state.fileRigged = glbHasSkeleton(buffer);
+        render();
+      }).catch(() => {});
+    }
+  };
+
+  function wire(active) {
+    const q = (sel) => sheet.querySelector(sel);
+    q('[data-close]').onclick = close;
+    sheet.querySelectorAll('[data-have]').forEach((b) => b.onclick = () => { state.have = b.dataset.have; setFile(null); state.stop = null; state.fileRigged = false; state.review = false; render(); });
+    sheet.querySelectorAll('[data-want]').forEach((b) => b.onclick = () => { state.want = b.dataset.want; state.stop = null; render(); });
+    sheet.querySelectorAll('[data-stop]').forEach((b) => b.onclick = () => { state.stop = state.stop === b.dataset.stop ? null : b.dataset.stop; render(); });
+    sheet.querySelectorAll('.qs').forEach((b) => b.onclick = () => { state.want = b.dataset.w; state.have = b.dataset.h; setFile(null); state.stop = null; state.fileRigged = false; state.review = false; render(); });
+    q('[data-tips]')?.addEventListener('click', () => { state.tips = !state.tips; render(); });
+    // the tips' "picture guide" link opens here, over Create, instead of on GitHub
+    q('.tipsbox')?.addEventListener('click', (e) => {
+      const link = e.target.closest('a');
+      if (link && isGuideLink(link.href)) { e.preventDefault(); openPromptGuide(); }
+    });
+    const text = q('[data-k="text"]');
+    if (text) {
+      fitTextarea(text);
+      text.oninput = () => { state.text = text.value; fitTextarea(text); warn(); };
+      if (typeof ResizeObserver !== 'undefined') {
+        let width = text.clientWidth;
+        textResize = new ResizeObserver(() => {
+          if (text.clientWidth === width) return;
+          width = text.clientWidth;
+          fitTextarea(text);
+        });
+        textResize.observe(text);
+      }
+      warn();
+    }
+    q('[data-k="recipe"]')?.addEventListener('change', (e) => { state.useRecipe = e.target.checked; });
+    const presetTier = q('[data-preset-tier]');
+    if (presetTier) presetTier.onchange = () => { state.preset = presetTier.value; applyMachinePreset(machinePresets.find((p) => p.id === presetTier.value)); render(); };
+    q('[data-k="move"]')?.addEventListener('change', (e) => { state.firstMove = e.target.value; });
+    sheet.querySelectorAll('[data-mprompt]').forEach((chip) => chip.onclick = () => {
+      sheet.querySelectorAll('[data-mprompt]').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
+      state.motionPrompt = chip.dataset.mprompt;
+      const box = q('[data-k="motiontext"]');
+      if (box) box.value = state.motionPrompt;
+    });
+    const motionText = q('[data-k="motiontext"]');
+    if (motionText) motionText.oninput = () => {
+      state.motionPrompt = motionText.value;
+      sheet.querySelectorAll('[data-mprompt]').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.mprompt === motionText.value)));
+    };
+    q('[data-k="mreps"]')?.addEventListener('change', (e) => { state.motion.reps = Number(e.target.value); });
+    q('[data-k="mcfg"]')?.addEventListener('input', (e) => {
+      state.motion.cfg = Number(e.target.value);
+      sheet.querySelector('[data-o="mcfg"]').textContent = Number(e.target.value).toFixed(1);
+    });
+    q('[data-k="mloop"]')?.addEventListener('change', (e) => { state.motion.loop = e.target.checked; });
+    q('[data-review]')?.addEventListener('change', (e) => { state.review = e.target.checked; });
+    // the rig source: a built-in example, an upload, or a path on this machine
+    const rigsrc = q('[data-rigsrc]');
+    if (rigsrc) {
+      rigsrc.onchange = () => { state.rigSrc = rigsrc.value; render(); };
+      const rigUpload = q('[data-rigupload]'), rigDrop = q('[data-rigdrop]');
+      if (rigDrop) {
+        rigDrop.onclick = () => rigUpload.click();
+        rigDrop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); rigUpload.click(); } };
+      }
+      rigUpload.onchange = () => { state.rigFile = rigUpload.files[0] || null; render(); };
+      q('[data-rigpath]').oninput = (e) => { state.rigPath = e.target.value; };
+    }
+    q('[data-k="engine"]')?.addEventListener('change', (e) => { state.engine = e.target.value; render(); const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; });
+    q('[data-k="keep"]')?.addEventListener('change', (e) => { state.keep = e.target.checked; });
+    q('[data-k="picengine"]')?.addEventListener('change', (e) => {
+      state.picEngine = e.target.value; state.pic.touched = false; render();
+      sheet.querySelector('.picset').closest('details').open = true;
+    });
+    sheet.querySelectorAll('[data-face]').forEach((b) => b.onclick = () => { state.hero = b.dataset.face === 'hero'; render(); });
+    const reopen3d = () => { const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; };
+    q('[data-k="frontback"]')?.addEventListener('change', (e) => { state.frontBack = e.target.checked; render(); reopen3d(); });
+    sheet.querySelectorAll('[data-pic]').forEach((el) => el.addEventListener('change', () => {
+      const key = el.dataset.pic;
+      state.pic[key] = el.type === 'checkbox' ? el.checked : Number(el.value);
+      if (key === 'size' || key === 'steps') state.pic.touched = true;
+      if (key === 'newEachTime') {
+        const scrollTop = sheet.scrollTop;
+        rerenderKeepingScroll(sheet, render);
+        sheet.querySelector('[data-pic="newEachTime"]').focus({ preventScroll: true });
+        sheet.scrollTop = scrollTop;
+      }  // show or hide the seed box
+    }));
+    const picker = q('[data-file]'), drop = q('[data-drop]');
+    if (drop) {
+      drop.onclick = () => picker.click();
+      drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picker.click(); } };
+    }
+    picker.onchange = () => takeFile(picker.files[0]);
+    const backPicker = q('[data-backfile]'), backDrop = q('[data-backdrop]');
+    if (backDrop) {
+      const takeBack = (file) => { if (file && PICTURE_TYPES.test(file.name)) { setBack(file); render(); } };
+      backDrop.onclick = (e) => { if (!e.target.closest('[data-backclear]')) backPicker.click(); };
+      backDrop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); backPicker.click(); } };
+      backDrop.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); takeBack(e.dataTransfer.files[0]); });
+      backPicker.onchange = () => takeBack(backPicker.files[0]);
+      q('[data-backclear]')?.addEventListener('click', (e) => { e.stopPropagation(); setBack(null); render(); });
+    }
+    q('form').onsubmit = (event) => {
+      event.preventDefault();
+      const error = q('[data-error]');
+      const fail = (message) => { error.textContent = message; error.hidden = false; };
+      if (state.have === 'idea' && !state.text.trim()) return fail('Describe what you want first.');
+      if (state.have !== 'idea' && state.have !== 'rig' && !state.file) return fail(`Choose ${state.have === 'model' ? 'a GLB' : 'a picture'} first.`);
+      if (state.want === 'motion' && !state.motionPrompt.trim()) return fail('Say what motion you want (or pick one of the prompts).');
+      // a rig source runs one motion job directly — no chain, no model steps
+      if (state.have === 'rig') {
+        const settings = { cfg_scale: state.motion.cfg, repetitions: state.motion.reps, loop: state.motion.loop };
+        const text = normalizePromptText(state.motionPrompt);
+        const out = q('[data-rigout]');
+        const done = (url, name, path) => { onRigDone?.(url, name, path); close(); };
+        if (state.rigSrc === 'upload') {
+          if (!state.rigFile) return fail('Choose a rigged GLB / glTF / FBX to upload.');
+          const form = new FormData();
+          form.append('asset', state.rigFile);
+          form.append('settings', JSON.stringify({ prompt: text, ...settings }));
+          runMotionImport({ body: form, out, onResult: done });
+        } else if (state.rigSrc === 'path') {
+          if (!state.rigPath.trim()) return fail('Give a path to a rigged GLB or an adapted rig folder.');
+          runMotionImport({ body: JSON.stringify({ path: state.rigPath.trim(), prompt: text, ...settings }), out, onResult: done });
+        } else {
+          if (!state.rigBuiltin) return fail('Pick a built-in rig.');
+          runMotionImport({ body: JSON.stringify({ builtin: state.rigBuiltin, prompt: text, ...settings }), out, onResult: done });
+        }
+        return;
+      }
+      const { file } = state;   // closing the sheet clears state.file, so take it first
+      const backFile = backSlotShown(state, frontBack, active) ? state.backFile : null;
+      // an already-rigged upload can go straight to the review sheet instead of the quick rule pass
+      const reviewUpload = state.have === 'model' && state.fileRigged && state.want === 'motion' && state.review;
+      // ...a generated model reviews its own skeleton after the run reaches Finish
+      const reviewAfter = !reviewUpload && state.want === 'motion' && state.review
+        && (state.have === 'idea' || state.have === 'picture');
+      const steps = reviewAfter ? stopAfter(active, 'finished') : active;
+      close();
+      if (reviewUpload) { onReview?.(file); return; }
+      onStart({ have: state.have, want: state.want, steps, file, engine: state.engine, firstMove: state.firstMove,
+        riggedUpload: active.includes('motion') && state.have === 'model' && state.fileRigged,
+        reviewAfterFinish: reviewAfter,
+        motionPrompt: active.includes('motion') ? normalizePromptText(state.motionPrompt) : null,
+        motionSettings: active.includes('motion')
+          ? { cfg_scale: state.motion.cfg, repetitions: state.motion.reps, loop: state.motion.loop } : null,
+        description: normalizePromptText(state.text), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
+        pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null,
+        pictureEngine: active.includes('picture') ? state.picEngine : null,
+        backFile,
+        modelSeed: active.includes('model') ? freshSeed() : null,   // a new 3D try each time, like the picture
+        keepEverything: active.includes('model') && state.keep,
+        finishSettings: finishFor(active) });
+    };
+    if (firstRender) text?.focus();
+    if (!firstRender) sheet.scrollTop = scrollTop;
+    firstRender = false;
+  }
+
+  // drop a file anywhere on the sheet
+  sheet.addEventListener('dragover', (e) => e.preventDefault());
+  sheet.addEventListener('drop', (e) => { e.preventDefault(); takeFile(e.dataTransfer.files[0]); });
+  sheet.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  render();
+  return {
+    canUseLibraryPicture: () => state.have === 'picture' && sheet.isConnected !== false,
+    sourceRevision: () => sourceRevision,
+    isSourceCurrent: (revision) => sourceRevision === revision && sheet.isConnected !== false,
+    usePicture: async (file) => {
+      if (!file || sheet.isConnected === false) return false;
+      state.have = 'picture';
+      const previousPreview = setFile(file, { deferPreviewRevoke: true });
+      const revision = sourceRevision;
+      const nextPreview = state.preview;
+      try {
+        await preloadPicture(nextPreview);
+      } catch {
+        if (nextPreview && state.preview === nextPreview) URL.revokeObjectURL(nextPreview);
+        return false;
+      }
+      if (sourceRevision !== revision || sheet.isConnected === false) {
+        if (nextPreview && state.preview === nextPreview) URL.revokeObjectURL(nextPreview);
+        return false;
+      }
+      updateSourcePreview();
+      if (previousPreview) URL.revokeObjectURL(previousPreview);
+      return true;
+    },
+    pictureName: () => state.file?.name || null,
+    showError: (message) => {
+      const error = sheet.querySelector('[data-error]');
+      if (error) { error.textContent = message; error.hidden = false; }
+    },
+  };
+}
+
+/**
+ * What changed between two snapshots of a server-side run, as the calls the progress view
+ * understands: ['step', s], ['progress', u], ['done', s, made], ['fail', s, why, log], ['finish'].
+ */
+export function chainEvents(before, after) {
+  const out = [];
+  const seen = new Set(before?.done || []);
+  for (const step of after.done) {
+    if (!seen.has(step)) { out.push(['done', step, after.made]); seen.add(step); }
+  }
+  const running = after.status === 'running';
+  if (after.current && after.current !== before?.current && running) out.push(['step', after.current]);
+  if (running && after.current) {
+    out.push(['progress', { event: { message: after.message }, percent: after.percent, log: after.full_log, stalled: after.stalled }]);
+  }
+  if (after.status === 'cancelled') out.push(['cancel', after.current]);
+  if (after.status === 'error') out.push(['fail', after.current, after.error, after.full_log]);
+  if (after.status === 'done') out.push(['finish']);
+  return out;
+}
+
+/** Whether this plan asks for Hero face: a character made from a picture with Pixal3D, finished. */
+export function heroWanted(state, active, pixal) {
+  return Boolean(state.hero && pixal && state.want === 'character' && state.have !== 'model' && active.includes('finished'));
+}
+
+/** Create's Quick / Hero face choice, for characters whose plan reaches Finish. */
+export function heroChoice(state, active, pixal) {
+  if (state.want !== 'character' || state.have === 'model' || !active.includes('finished')) return '';
+  const off = pixal ? '' : ' disabled data-tip="Hero face needs Pixal3D as the 3D engine (Advanced: 3D model)."';
+  const hero = state.hero && pixal;
+  return `<div class="q"><span class="qn">4</span><b>Face</b></div>
+      <div class="wants faces">
+        <button type="button" class="kind" data-face="quick" aria-pressed="${!hero}"><b>Quick</b><small>The usual Finish. Fine for most characters, and props.</small></button>
+        <button type="button" class="kind${pixal ? '' : ' off'}" data-face="hero" aria-pressed="${hero}"${off}><b>Hero face</b><small>Builds the head again from a close, sharper crop: real eyelids instead of goggle eyes. Takes longer.</small></button>
+      </div>`;
+}
+
+/** Finish's settings from a chosen machine preset's detail and texture. Hero face wins over the
+ *  preset's detail; the texture size applies either way. Nothing when the preset left both unset. */
+export function presetFinishSettings(preset, { hero = false } = {}) {
+  const settings = hero ? { faces: 32000, hero: true }
+    : (preset?.finish_detail != null ? finishDetailSettings(preset.finish_detail) : {});
+  if (preset?.texture_size != null) settings.texture_size = Number(preset.texture_size);
+  return Object.keys(settings).length ? settings : null;
+}
+
+/** The form a plan travels to the server in. */
+export function planForm(plan, made = {}) {
+  const form = new FormData();
+  form.append('title', plan.description || plan.file?.name || 'New asset');
+  form.append('steps', JSON.stringify(plan.steps));
+  form.append('want', plan.want || 'character');
+  if (plan.prompt) form.append('prompt', plan.prompt);
+  if (plan.engine) form.append('engine', plan.engine);
+  if (plan.firstMove) form.append('first_move', plan.firstMove);
+  if (plan.motionPrompt) form.append('motion_prompt', plan.motionPrompt);
+  if (plan.motionSettings) form.append('motion_settings', JSON.stringify(plan.motionSettings));
+  if (plan.pictureSettings) form.append('picture_settings', JSON.stringify(plan.pictureSettings));
+  if (plan.pictureEngine) form.append('picture_engine', plan.pictureEngine);
+  if (plan.modelSeed != null) form.append('model_seed', String(plan.modelSeed));
+  if (plan.keepEverything) form.append('keep_everything', '1');
+  if (plan.riggedUpload) form.append('rigged_upload', '1');
+  if (plan.finishSettings) form.append('finish_settings', JSON.stringify(plan.finishSettings));
+  if (plan.moveSettings) form.append('move_settings', JSON.stringify(plan.moveSettings));
+  if (plan.backSettings) form.append('back_settings', JSON.stringify(plan.backSettings));
+  form.append('made', JSON.stringify(made));
+  if (plan.file) form.append('file', plan.file);
+  if (plan.backFile) form.append('back_file', plan.backFile);
+  return form;
+}
+
+/**
+ * Carry one thing through its steps. The run itself happens on the server (closing the tab
+ * does not stop it); this follows it. `ui` draws progress; `ctx.reload(match)` refreshes the
+ * Library and selects the asset `match(asset)` finds. Pass `attach` (a run id) to pick up a
+ * run that is already going, as a reopened tab does.
+ */
+export async function runChain(plan, { ui, ctx, attach = null, fetchImpl = fetch, interval = 1200 }) {
+  let made = {};
+  const mine = (asset) => (made.picture && asset.picture === made.picture) || (made.model && asset.model === made.model)
+    || (made.finished && asset.finished === made.finished) || (made.rigged && asset.rigged === made.rigged);
+  ui.begin(plan);
+  let id = attach;
+  if (!id) {
+    try {
+      // a Steps-panel run carries on from the asset's own files (`plan.made`)
+      const response = await fetchImpl('/api/chains', { method: 'POST', body: planForm(plan, plan.made || {}) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `the server answered ${response.status}`);
+      id = payload.id;
+    } catch (error) {
+      ui.fail(plan.steps[0], plainError(error.message), '');
+      return false;
+    }
+  }
+  ui.cancelWith(() => fetchImpl(`/api/chains/${id}/cancel`, { method: 'POST' }).catch(() => {}));
+  let before = null;
+  for (;;) {
+    let after;
+    try {
+      after = await (await fetchImpl(`/api/chains/${id}`)).json();
+    } catch {
+      await new Promise((r) => setTimeout(r, interval));  // a missed poll is not a failure
+      continue;
+    }
+    if (!after?.steps) { ui.fail(plan.steps[0], 'This run is no longer known to the server (it was restarted). Anything finished is in your Library.', ''); return false; }
+    made = after.made || {};
+    for (const [kind, ...args] of chainEvents(before, after)) {
+      if (kind === 'done') { await ctx.reload(mine); ui.done(args[0], { ...made }, { ...(after.step_seconds || {}) }); }
+      else if (kind === 'fail') { ui.fail(args[0], args[1], args[2] || ''); return false; }
+      else if (kind === 'cancel') { ui.cancelled(args[0]); return false; }
+      else if (kind === 'finish') { await ctx.reload(mine); ui.finish(mine); return true; }
+      else ui[kind](...args);
+    }
+    before = after;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+}
