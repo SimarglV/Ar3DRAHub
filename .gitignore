@@ -71,4 +71,7 @@ AGENTS.local.md
 CLAUDE.local.md
 
 .venv-studio/
-models/
+
+# Top-level model weights only. Nested `models/` packages (e.g.
+# hunyuan_mlx/shape/hy3dmlx/models/) are tracked source code.
+/models/
