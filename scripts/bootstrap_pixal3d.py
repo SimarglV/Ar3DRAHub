@@ -97,8 +97,8 @@ PREBUILTS = {
 }
 # From the workflow run's log. A download that does not match is deleted, never unpacked.
 PREBUILT_SHA256 = {
-    "pixal3d-cuda12-linux-x64.tar.gz": "ca59ac8ca42c5c3597c23ada69082c7e1ed57a860dd2f4ab7dbaefbc4510e315",
-    "pixal3d-cuda12-windows-x64.zip": "ecd0f9320384c6bedbbd774277a86beb8885e3afa5a13250687d025e53102175",
+    "pixal3d-cuda12-linux-x64.tar.gz": "51ff328e569635d20aa44873397caafac6601cdfb6fb306e913a1f0115c22829",
+    "pixal3d-cuda12-windows-x64.zip": "cbe9a62ad14706e6f128670a2b7e03529fb80219ef1bdef80d12e67fe0738907",
 }
 
 # What the "Building (...)" line says, so a compile that runs for 20 minutes names the
@@ -319,6 +319,14 @@ def install_prebuilt(key: str) -> Path:
         url = RELEASE_API.format(tag=PREBUILT_RELEASE)
         with urllib.request.urlopen(url, timeout=30) as response:
             release = json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise SystemExit(
+                f"The prebuilt release {PREBUILT_RELEASE} is not on GitHub yet. Run the "
+                "'Pixal3D NVIDIA build' workflow (repo Actions tab) to build and publish "
+                "it, then run this again."
+            ) from exc
+        raise SystemExit(f"Could not reach GitHub: {exc}") from exc
     except (urllib.error.URLError, TimeoutError) as exc:
         raise SystemExit(f"Could not reach GitHub: {exc}") from exc
     asset = pick_prebuilt(release.get("assets", []), key)

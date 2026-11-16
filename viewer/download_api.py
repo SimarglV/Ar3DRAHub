@@ -594,8 +594,9 @@ def _watch_elapsed(run: DownloadRun, stop: threading.Event) -> None:
 
 # A sign-in problem, and not just the word "token": every failed C++ compile says
 # "expected ';' before '}' token", and the HIP builds on AMD compile for half an hour.
+# "401" must look like an HTTP status, not a Python traceback line ("line 401, in ...").
 AUTH_FAILURE = re.compile(
-    r"\b401\b|gated|authenticat|unauthori[sz]ed"
+    r"\b401 (?:Client Error|Unauthorized|Forbidden)\b|gated|authenticat|unauthori[sz]ed"
     r"|(?:invalid|expired|missing|no|bad) (?:\w+ )?token|token (?:is )?(?:invalid|expired|required)")
 
 
@@ -614,7 +615,7 @@ def _explain(code: int, log: list[str]) -> str:
     if "no space left" in tail or "enospc" in tail:
         return "ran out of disk space. Free some room and retry; what downloaded is kept."
     if ("temporary failure in name resolution" in tail or "connection" in tail
-            or "timed out" in tail or "failed to download" in tail):
+            or "timed out" in tail or "failed to download" in tail or "ssl" in tail):
         return ("network error: a download failed or timed out. Check the connection and "
                 "press Set up again; it picks up where it left off.")
     last = next((line for line in reversed(log) if line.strip()), "")

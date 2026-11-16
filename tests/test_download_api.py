@@ -93,6 +93,24 @@ def test_a_gated_repo_is_explained_as_a_login_problem():
     assert "login" in message and "retry" in message
 
 
+def test_a_401_traceback_line_is_not_a_login_problem():
+    """`\\b401\\b` matched the Python traceback line "line 401, in ...", so an unrelated
+    failure was blamed on Hugging Face sign-in. "401" must look like an HTTP status."""
+    log = ["Traceback (most recent call last):",
+           '  File ".../concurrent/futures/_base.py", line 401, in __get_result',
+           "SomeError: something went wrong"]
+    assert "login" not in dl._explain(1, log)
+
+
+def test_an_ssl_failure_is_a_network_error_not_a_login_problem():
+    """An SSL "record layer failure" mid-download is a dropped connection, not a gated
+    model; retry, do not ask for a Hugging Face login."""
+    log = ["Fetching raven38/pixal3d-sv-q8_0-v1 (8.4 GB, resumable)...",
+           "httpx2.ReadError: [SSL] record layer failure (_ssl.c:2590)"]
+    message = dl._explain(1, log)
+    assert "network" in message and "Hugging Face" not in message
+
+
 def test_a_repo_named_tokens_is_not_mistaken_for_a_login_problem():
     """A Windows user's symlink error was blamed on Hugging Face sign-in, because the old
     check matched "token" inside SkinTokens' own path."""

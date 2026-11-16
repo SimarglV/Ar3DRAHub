@@ -7,6 +7,7 @@ import hashlib
 import io
 import tarfile
 import types
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -100,6 +101,27 @@ def test_prebuilt_is_our_own_build_for_this_os(key, expected):
 
 def test_missing_prebuilt_is_none():
     assert boot.pick_prebuilt(RELEASE[:2], "linux-nvidia") is None
+
+
+def test_a_missing_prebuilt_release_points_at_the_workflow(monkeypatch):
+    """A 404 is not "could not reach GitHub": the release has never been published. The
+    workflow that builds it is the fix, so the message names it."""
+    def urlopen(url, timeout=None):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(boot.urllib.request, "urlopen", urlopen)
+    with pytest.raises(SystemExit, match="Pixal3D NVIDIA build"):
+        boot.install_prebuilt("windows-nvidia")
+
+
+def test_another_http_error_still_says_could_not_reach_github(monkeypatch):
+    """A 500 (or any non-404) is a real failure to reach the release, not a missing one."""
+    def urlopen(url, timeout=None):
+        raise urllib.error.HTTPError(url, 500, "Server Error", {}, None)
+
+    monkeypatch.setattr(boot.urllib.request, "urlopen", urlopen)
+    with pytest.raises(SystemExit, match="Could not reach GitHub"):
+        boot.install_prebuilt("windows-nvidia")
 
 
 def test_the_prebuilt_comes_from_this_repo_and_the_workflow_builds_the_pinned_commit():
