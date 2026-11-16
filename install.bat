@@ -9,30 +9,51 @@ echo   UniMate - one-command installer
 echo ================================================
 echo.
 
-REM ── 1. Locate a Python 3.10 interpreter ──────────────────────────────────
-set "PY="
-py -3.10 -c "import sys" >nul 2>&1 && set "PY=py -3.10"
-if not defined PY (
-    python -c "import sys; sys.exit(0 if sys.version_info[:2]==(3,10) else 1)" >nul 2>&1 && set "PY=python"
-)
-if not defined PY (
-    echo [ERROR] Python 3.10 was not found.
-    echo         UniMate needs Python 3.10 exactly (the bpy 4.0 wheels are cp310-only).
-    echo         Install it and re-run, e.g.:
-    echo           winget install Python.Python.3.10
-    echo         or download from https://www.python.org/downloads/release/python-31011/
+REM ── 1. Make sure uv is available (it fetches Python 3.10) ──────────────
+where uv >nul 2>&1
+if not errorlevel 1 goto :have_uv
+
+echo uv is needed to set up Python 3.10: Astral's Python installer, ~40 MB.
+set /p "ANSWER=Install uv from astral.sh? [y/N] "
+if /i not "%ANSWER%"=="y" (
+    echo Stopped. Nothing was changed.
     pause
     exit /b 1
 )
-echo Using Python 3.10 (%PY%)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+set "PATH=%USERPROFILE%\.local\bin;%PATH%"
+where uv >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] uv installed, but this window cannot see it yet.
+    echo         Open a new Command Prompt and run this again.
+    pause
+    exit /b 1
+)
 
-REM ── 2. Create the virtual environment ────────────────────────────────────
+:have_uv
+
+REM ── 2. Create the virtual environment (uv fetches Python 3.10) ─────────
 echo.
-echo [1/4] Creating virtual environment (.venv) ...
-%PY% -m venv .venv
+echo [1/4] Creating virtual environment (.venv, Python 3.10) ...
+if not exist ".venv\Scripts\python.exe" goto :make_venv
+".venv\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info[:2]==(3,10) else 1)" >nul 2>&1
+if errorlevel 1 goto :replace_venv
+echo         Already present: .venv (Python 3.10)
+goto :have_venv
+
+:replace_venv
+echo         Replacing .venv: it is not Python 3.10.
+uv venv --clear --seed --no-project --python 3.10 .venv
+if errorlevel 1 goto :err
+goto :have_venv
+
+:make_venv
+uv venv --seed --no-project --python 3.10 .venv
 if errorlevel 1 goto :err
 
-REM ── 3. Install dependencies ──────────────────────────────────────────────
+:have_venv
+
+REM ── 3. Install dependencies ────────────────────────────────────────────
 echo.
 echo [2/4] Installing setuptools^<81 ...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip "setuptools<81"
@@ -43,7 +64,7 @@ echo [3/4] Installing dependencies (this can take several minutes) ...
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt --no-build-isolation
 if errorlevel 1 goto :err
 
-REM ── 4. Download the checkpoint ───────────────────────────────────────────
+REM ── 4. Download the checkpoint ─────────────────────────────────────────
 set "CKPT=outputs\unimate_uniml3d_f60_v3\checkpoints\checkpoint_step_150000.pt"
 echo.
 echo [4/4] Downloading the model checkpoint ...

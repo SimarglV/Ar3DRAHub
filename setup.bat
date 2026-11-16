@@ -14,9 +14,9 @@ echo                     checkpoint (~6 GB) if it is missing.
 echo   2. .venv-studio - Python 3.11, the studio. Packages only, no
 echo                     model weights.
 echo.
-echo Needed: Python 3.10 (winget install Python.Python.3.10), an
-echo NVIDIA GPU for generation, ~30 GB of free disk. Nothing else
-echo downloads without asking.
+echo Needed: an NVIDIA GPU for generation and ~30 GB of free disk.
+echo Python 3.10 and 3.11 are fetched automatically via uv. Nothing
+echo else downloads without asking.
 echo.
 
 REM /y skips the question (scripts and agents)
