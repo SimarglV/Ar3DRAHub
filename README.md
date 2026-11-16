@@ -11,9 +11,8 @@
 
 <p align="center">
   This repository joins <a href="https://linzhanmou.com/unimate/">UniMate</a> (one unified model that
-  animates any skeleton from text) with the open <b>AssetFurnace</b> studio
-  (<a href="https://github.com/Bingeljell/image-to-3dlab">Apache-2.0, by Bingeljell</a>) — the pipeline that
-  makes the picture, the 3D model and the skeleton that UniMate then moves.
+  animates any skeleton from text) with the open studio —
+  the pipeline that makes the picture, the 3D model and the skeleton that UniMate then moves.
 </p>
 
 ---
@@ -94,7 +93,7 @@ Nothing downloads model weights without your yes: each **Set up** button and `in
 name the size and licence first. The studio asks before fetching anything. Everything
 downloads into the project's own `models/` folder by default (`models/huggingface`,
 `models/u2net`, `models/<engine>`), so nothing leaves the repo unless you ask it to. Pick
-another drive on the Setup page's **Models folder** (or `ASSETFURNACE_MODELS=<path>`). The
+another drive on the Setup page's **Models folder**. The
 UniMate checkpoint lives in `outputs/unimate_uniml3d_f60_v3/`.
 
 ## UniMate: one model, any skeleton
@@ -168,19 +167,14 @@ marks).
 
 ## License
 
-- **UniMate** code is [MIT](LICENSE); the released checkpoint is
+- **UniMate** code is MIT; the released checkpoint is
   [CC BY-NC 4.0](https://huggingface.co/Linzhan/UniMate/blob/main/LICENSE), so text-motion
   output is marked non-commercial in its `.provenance.json`.
-- **The studio** (the `Ar3DRAHub/` package, `viewer/`, `pipeline.py` and their
-  scripts) is Apache-2.0 — see [`LICENSE-ASSETFURNACE-APACHE`](LICENSE-ASSETFURNACE-APACHE)
-  and the [`NOTICE`](NOTICE) file.
 - **Model weights** used by the studio keep their own licences, recorded per run.
 - **The datasets** stay governed by their original sources (Mixamo, Objaverse-XL, Truebones).
 
 ## Acknowledgement
 
 We thank the authors of [AnyTop](https://github.com/Anytop2025/Anytop) for open-sourcing
-their codebase, on which parts of this repository build, and
-[Bingeljell](https://github.com/Bingeljell) for the open AssetFurnace studio this project
-merges — the full list of models and credits is in
+their codebase, on which parts of this repository build — the full list of models and credits is in
 [`docs/info_and_credits.md`](docs/info_and_credits.md).
