@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "unimate": {
+        "type": "local",
+        "command": [
+          ".venv-studio/Scripts/python.exe",
+          "-m",
+          "Ar3DRAHub.mcp_server"
+        ],
+        "cwd": "."
+      }
+    }
+  }
+}
