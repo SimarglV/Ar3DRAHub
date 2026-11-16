@@ -38,7 +38,7 @@ DISPATCH_ANCHOR = """    else:
         raise ValueError(f"Unknown attention module: {config.ATTN}")"""
 
 DISPATCH_NEW = '''    elif config.ATTN == 'mlx':
-        # image-to-3dlab: route attention through MLX's fused Metal kernel.
+        # Ar3DRAHub: route attention through MLX's fused Metal kernel.
         #
         # torch MPS has no fused attention kernel and Pedro's Metal kernel supports head
         # dimensions only through 64, while TRELLIS.2-4B uses 128. The unfused fallback

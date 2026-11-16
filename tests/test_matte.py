@@ -183,7 +183,7 @@ def test_the_lean_file_is_preferred_over_rembgs_copy(tmp_path, monkeypatch):
 
 
 def test_the_lean_download_is_pinned_to_a_known_file():
-    assert mt.LEAN_URL.startswith("https://huggingface.co/AssetFurnace/birefnet-lite-onnx/")
+    assert mt.LEAN_URL.startswith("https://huggingface.co/SimarglV/birefnet-lite-onnx/")
     assert mt.LEAN_BYTES == 180_666_557 and len(mt.LEAN_SHA256) == 64
     assert mt.LEAN_SIZE == 1024
 

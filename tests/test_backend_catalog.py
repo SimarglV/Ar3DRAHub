@@ -179,7 +179,7 @@ def test_the_background_remover_is_one_announced_file(tmp_path, monkeypatch):
     entry = next(b for b in bc.catalog_status()["backends"] if b["id"] == "matte")
     (weights,) = entry["weights"]
     assert weights["bytes_expected"] == 180_666_557
-    assert weights["source_url"].startswith("https://huggingface.co/AssetFurnace/birefnet-lite-onnx/")
+    assert weights["source_url"].startswith("https://huggingface.co/SimarglV/birefnet-lite-onnx/")
     assert weights["path"].endswith("birefnet-lite-lean.onnx")
 
 

@@ -52,7 +52,7 @@ STUBS = (
     ),
 )
 
-MARKER = "        # image-to-3dlab: cleanup re-enabled by patch_trellis_enable_cleanup.py\n"
+MARKER = "        # Ar3DRAHub: cleanup re-enabled by patch_trellis_enable_cleanup.py\n"
 
 
 def find_stubs(source: str) -> list[str]:

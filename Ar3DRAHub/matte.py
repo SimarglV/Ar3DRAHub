@@ -46,7 +46,7 @@ def is_matted(image) -> bool:
 # silently re-downloads its own copy on a mismatch; we run the lean file ourselves.
 
 LEAN_MODEL = "birefnet-lite-lean"
-LEAN_URL = ("https://huggingface.co/AssetFurnace/birefnet-lite-onnx/resolve/main/"
+LEAN_URL = ("https://huggingface.co/SimarglV/birefnet-lite-onnx/resolve/main/"
             "birefnet-lite-1024.onnx")
 LEAN_BYTES = 180_666_557
 LEAN_SHA256 = "a97176abb6fe55525b11113bf5bead5a9b5866b2c0d4ac058186cabb86cadfff"

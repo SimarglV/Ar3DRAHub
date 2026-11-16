@@ -50,7 +50,7 @@ DEFAULT_ROOT = REPO / "vendor" / "trellis-rocm"
 CHECKOUT = "TRELLIS.2"
 EXTENSIONS = "extensions"
 
-MARKER = "# image-to-3dlab:"
+MARKER = "# Ar3DRAHub:"
 
 
 @dataclass(frozen=True)

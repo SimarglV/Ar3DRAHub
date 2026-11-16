@@ -51,7 +51,7 @@ class Patch:
 BAKER_FILE = "texture_baker/setup.py"
 BAKER_NEEDLE = "    use_cuda = use_cuda and CUDA_HOME is not None"
 BAKER_REPLACEMENT = (
-    "    # image-to-3dlab: a ROCm build of torch leaves CUDA_HOME None and puts ROCM_HOME in\n"
+    "    # Ar3DRAHub: a ROCm build of torch leaves CUDA_HOME None and puts ROCM_HOME in\n"
     "    # its place, so this silently dropped baker_kernel.cu and built a CPU-only baker.\n"
     "    use_cuda = use_cuda and (CUDA_HOME is not None or torch.version.hip is not None)"
 )
@@ -69,7 +69,7 @@ REMBG_PIN = "rembg[cpu]==2.0.69; sys_platform != 'darwin'"
 REQUIREMENTS_FILE = "requirements.txt"
 REQUIREMENTS_NEEDLE = "rembg[gpu]==2.0.57; sys_platform != 'darwin'"
 REQUIREMENTS_REPLACEMENT = (
-    "# image-to-3dlab: plain rembg, not [gpu]: onnxruntime-gpu is a CUDA wheel and cannot\n"
+    "# Ar3DRAHub: plain rembg, not [gpu]: onnxruntime-gpu is a CUDA wheel and cannot\n"
     "# load on an AMD card. 2.0.69 for BiRefNet, which Ar3DRAHub/matte.py asks for.\n"
     + REMBG_PIN
 )

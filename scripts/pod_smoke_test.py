@@ -49,7 +49,7 @@ IMAGE = "runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2404"
 ROUTES = ("trellis", "hunyuan-cuda", "pixal3d")
 PORT = 8777
 # The installer of the ref under test: main's may not know flags the branch added.
-INSTALL_URL = "https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/{ref}/install.sh"
+INSTALL_URL = "https://raw.githubusercontent.com/SimarglV/Ar3DRAHub/{ref}/install.sh"
 # Big public files on the hosts setup downloads from most: Hugging Face and GitHub
 # releases (flash-attn's wheel). The slower one sets the pace.
 SPEED_URLS = (
@@ -159,7 +159,7 @@ def lab_command(pod_id: str) -> str:
 
     `;`, not `&&`: with `&&` the trailing `&` backgrounds the whole list, whose stdout is
     still the SSH channel, so ssh never returns."""
-    return (f"cd ~/image-to-3dlab; RUNPOD_POD_ID={shlex.quote(pod_id)} "
+    return (f"cd ~/Ar3DRAHub; RUNPOD_POD_ID={shlex.quote(pod_id)} "
             "nohup ./lab > lab.log 2>&1 < /dev/null &")
 
 
@@ -309,7 +309,7 @@ def delete(pod_id: str) -> None:
 # ---- the viewer API ------------------------------------------------------------------
 
 # Named honestly: Cloudflare refuses Python-urllib's anonymous default, not us.
-USER_AGENT = "image-to-3dlab pod smoke test (+https://github.com/Bingeljell/image-to-3dlab)"
+USER_AGENT = "Ar3DRAHub pod smoke test (+https://github.com/SimarglV/Ar3DRAHub)"
 
 
 class Viewer:
@@ -435,7 +435,7 @@ def run_smoke(pod: Pod, args, token: str, out: Path, results: list[dict]) -> lis
                 return viewer.base + "/viewer/studio.html"
             time.sleep(6)
         raise RuntimeError(f"viewer never answered {viewer.base} (last: {last}): "
-                           + pod.ssh("tail -20 ~/image-to-3dlab/lab.log"))
+                           + pod.ssh("tail -20 ~/Ar3DRAHub/lab.log"))
 
     ok, url = step(results, "start the lab", start_lab)
     if not ok:

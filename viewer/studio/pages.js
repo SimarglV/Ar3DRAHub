@@ -146,7 +146,7 @@ const CREDITS = [
   ['SkinTokens', 'VAST-AI (auto-rig)', 'MIT'],
   ['Kimodo', 'NVIDIA (the preset moves)', 'Apache-2.0 code, NVIDIA Open Model License'],
   ['UniMate', 'Linzhan Mou et al., SIGGRAPH Asia 2026 (text-to-motion)', 'MIT code; CC BY-NC 4.0 checkpoint'],
-  ['AssetFurnace', 'Bingeljell (the studio this is built on)', 'Apache-2.0'],
+  ['Ar3DRAHub', 'SimarglV (the studio this is built on)', 'Apache-2.0'],
   ['MLX, rembg, TinyCLIP, three.js', 'and the people behind them', 'MIT'],
 ];
 
@@ -154,8 +154,8 @@ export async function openAbout(stage) {
   const el = sheet(stage, `<div class="sheet-card about">
     <div class="sheet-top"><h2>About Ar3DRA <span>Hub</span></h2><button type="button" class="ghost" data-close>Close</button></div>
     <p><b>UniMate</b> is one unified model that animates any skeleton, from a short text prompt
-      (SIGGRAPH Asia 2026). This studio joins it with the open <b>AssetFurnace</b> pipeline
-      (Apache-2.0, by Bingeljell): describe an idea or drop a picture, and the studio makes the
+      (SIGGRAPH Asia 2026). This studio joins it with the open <b>Ar3DRAHub</b> pipeline
+      (Apache-2.0, by SimarglV): describe an idea or drop a picture, and the studio makes the
       picture, the 3D model, the clean-up and the rig — then UniMate reads your sentence and
       animates it. People, animals, machines: any skeleton.</p>
     <p>The goal is to let you make game-ready, moving characters on your own machine: from an idea, a picture or a

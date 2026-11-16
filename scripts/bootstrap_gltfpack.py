@@ -33,7 +33,7 @@ from Ar3DRAHub import __version__
 
 VERSION = "v1.3"
 RELEASES = f"https://github.com/zeux/meshoptimizer/releases/download/{VERSION}/"
-USER_AGENT = f"Ar3DRAHub/{__version__} (+https://github.com/Bingeljell/image-to-3dlab)"
+USER_AGENT = f"Ar3DRAHub/{__version__} (+https://github.com/SimarglV/Ar3DRAHub)"
 
 
 @dataclass(frozen=True)

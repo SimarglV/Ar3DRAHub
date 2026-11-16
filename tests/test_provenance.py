@@ -279,7 +279,7 @@ def test_every_record_says_who_made_the_file(tmp_path):
     assert saved["made_with"] == {
         "name": "Ar3DRA Hub",
         "version": __version__,
-        "url": "https://github.com/LinzhanMou/UniMate",
+        "url": "https://github.com/SimarglV/Ar3DRAHub",
     }
     assert saved["schema_version"] == 1, "the schema version does not move"
     assert saved["license"] == {"name": "Apache-2.0", "conditions": ["credit"]}
@@ -294,7 +294,7 @@ def test_an_old_record_without_made_with_still_loads(tmp_path):
     assert json.loads(path.read_text()) == old
 
 
-def test_a_glb_says_it_was_made_with_assetfurnace_and_nothing_else_changes(tmp_path):
+def test_a_glb_says_it_was_made_with_Ar3DRAHub_and_nothing_else_changes(tmp_path):
     path = tmp_path / "a.glb"
     before_bytes = valid_glb(generator="Khronos glTF Blender I/O v5.2.39",
                              asset_extra={"minVersion": "2.0"}, binary=b"\x01\x02\x03\x04")

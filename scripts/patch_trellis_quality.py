@@ -83,7 +83,7 @@ CALL_NEEDLE = """                    decimation_target=target_faces,
 
 CALL_REPLACEMENT = """                    decimation_target=target_faces,
                     texture_size=tex_size,
-                    # image-to-3dlab: the quality controls the port never passed.
+                    # Ar3DRAHub: the quality controls the port never passed.
                     remesh=args.remesh,
                     remesh_band=args.remesh_band,
                     remesh_project=args.remesh_project,
@@ -101,7 +101,7 @@ CALL_REPLACEMENT = """                    decimation_target=target_faces,
 # signature check keeps an unpatched o_voxel from raising TypeError sixteen minutes into
 # a run — it warns and packs the old way instead.
 PACK_ANCHOR = "                glb = o_voxel.postprocess.to_glb(\n"
-PACK_PREAMBLE = '''                # image-to-3dlab: brute-force xatlas packing, when o_voxel can
+PACK_PREAMBLE = '''                # Ar3DRAHub: brute-force xatlas packing, when o_voxel can
                 # forward it. See scripts/patch_ovoxel_pack_options.py.
                 import inspect as _inspect
                 _pack_kwargs = {}

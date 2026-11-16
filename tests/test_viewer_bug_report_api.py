@@ -12,13 +12,13 @@ HOME = "/Users/ada"
 
 
 def test_the_home_folder_becomes_a_tilde_everywhere():
-    assert br.scrub(f"{HOME}/AssetFurnace and {HOME}", HOME) == "~/AssetFurnace and ~"
-    assert br.scrub(r"C:\Users\ada\AssetFurnace", r"C:\Users\ada") == r"~\AssetFurnace"
+    assert br.scrub(f"{HOME}/Ar3DRAHub and {HOME}", HOME) == "~/Ar3DRAHub and ~"
+    assert br.scrub(r"C:\Users\ada\Ar3DRAHub", r"C:\Users\ada") == r"~\Ar3DRAHub"
 
 
 def test_copy_text_has_the_message_and_the_details_scrubbed():
-    text = br.copy_text("Finish crashed", f"OSError: {HOME}/AssetFurnace/output/x.glb", home=HOME)
-    assert text.startswith("Finish crashed") and "OSError: ~/AssetFurnace/output/x.glb" in text
+    text = br.copy_text("Finish crashed", f"OSError: {HOME}/Ar3DRAHub/output/x.glb", home=HOME)
+    assert text.startswith("Finish crashed") and "OSError: ~/Ar3DRAHub/output/x.glb" in text
     assert HOME not in text
 
 

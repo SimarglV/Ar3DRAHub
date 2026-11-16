@@ -77,7 +77,7 @@ def save(folder: str, repo: Path = REPO) -> Path | None:
         raise ValueError(f"{path} is a file, not a folder")
     try:
         path.mkdir(parents=True, exist_ok=True)
-        probe = path / ".assetfurnace-write-test"
+        probe = path / ".Ar3DRAHub-write-test"
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
     except OSError as exc:

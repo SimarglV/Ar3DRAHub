@@ -117,7 +117,7 @@ def test_the_lab_listens_for_runpods_proxy():
 def test_starting_the_lab_returns_at_once(tmp_path):
     # 2026-10-02: `cd x && nohup ./lab ... &` backgrounded the whole list, which kept the
     # SSH channel open, and the step timed out. A pipe holds stdout the way ssh does.
-    lab = tmp_path / "image-to-3dlab" / "lab"
+    lab = tmp_path / "Ar3DRAHub" / "lab"
     lab.parent.mkdir()
     lab.write_text("#!/bin/sh\nsleep 5\n")
     lab.chmod(0o755)
@@ -146,7 +146,7 @@ def test_the_viewer_calls_do_not_look_like_a_bot():
     status, _ = smoke.Viewer(f"http://127.0.0.1:{server.server_port}").call("GET", "/x")
     server.server_close()
     assert status == 200
-    assert seen["agent"].startswith("image-to-3dlab") and "Mozilla" not in seen["agent"]
+    assert seen["agent"].startswith("Ar3DRAHub") and "Mozilla" not in seen["agent"]
 
 
 def test_a_network_blip_while_waiting_is_not_a_failed_step():

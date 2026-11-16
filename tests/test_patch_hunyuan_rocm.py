@@ -86,7 +86,7 @@ def test_patching_ten_times_does_not_stack_the_imports(checkout: Path):
     for _ in range(10):
         gen.patch(checkout)
     text = (checkout / gen.ATTN_FILE).read_text()
-    assert text.count("import os  # image-to-3dlab") == 1
+    assert text.count("import os  # Ar3DRAHub") == 1
     # This patch keeps its anchor by design, so exactly one of those must survive too.
     assert text.count(gen.ATTN_IMPORT_NEEDLE) == 1
     # The attention call is fully replaced: it becomes the unchunked branch, re-indented.
@@ -165,7 +165,7 @@ def _chunked_attention(checkout: Path):
     # The replacement runs from its marker comment to the blank line before the
     # `return hidden_states` upstream already had. Upstream indents it eight spaces (it is
     # inside a class method); it becomes the body of a plain function here.
-    marker = "        # image-to-3dlab: chunk the sequence axis"
+    marker = "        # Ar3DRAHub: chunk the sequence axis"
     block = marker + text.split(marker)[1].split("\n\n")[0]
     body = "\n".join("    " + line[8:] if line.strip() else "" for line in block.splitlines())
     source = ("def chunked(query, key, value, attention_mask=None):\n"

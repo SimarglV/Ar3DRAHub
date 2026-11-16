@@ -30,14 +30,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VENV = ROOT / "vendor" / "trellis-mac" / ".venv"
 
-MARKER = "image-to-3dlab: forward xatlas packing options"
+MARKER = "Ar3DRAHub: forward xatlas packing options"
 
 SIGNATURE_NEEDLE = """    mesh_cluster_smooth_strength=1,
     verbose: bool = False,
 """
 
 SIGNATURE_REPLACEMENT = """    mesh_cluster_smooth_strength=1,
-    # image-to-3dlab: forward xatlas packing options. None keeps xatlas' defaults.
+    # Ar3DRAHub: forward xatlas packing options. None keeps xatlas' defaults.
     xatlas_pack_charts_kwargs: dict = None,
     verbose: bool = False,
 """

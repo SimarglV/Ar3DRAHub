@@ -143,7 +143,7 @@ def test_a_checkout_patched_before_the_bump_is_moved_on(checkout: Path):
     path = checkout / gen.REQUIREMENTS_FILE
     path.write_text(path.read_text().replace(
         gen.REQUIREMENTS_NEEDLE,
-        "# image-to-3dlab: plain rembg, not [gpu]: old comment\n" + gen.OLD_PATCHED_PIN))
+        "# Ar3DRAHub: plain rembg, not [gpu]: old comment\n" + gen.OLD_PATCHED_PIN))
     gen.patch(checkout)
     gen.patch(checkout)
     text = path.read_text()

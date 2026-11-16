@@ -248,7 +248,7 @@ def patch_disable_blocking_visualizer() -> bool:
         '        print("Visualization is not supported on headless servers. Please consider other headless rendering methods.")\n'
     )
     replacement = (
-        "    # image-to-3dlab: show_obj_skel blocks forever on vis.run() waiting for a\n"
+        "    # Ar3DRAHub: show_obj_skel blocks forever on vis.run() waiting for a\n"
         "    # human to close its window -- disabled for headless/batch inference.\n"
         "    # try:\n"
         "    #     img = show_obj_skel(mesh_filename, pred_skel.root)\n"

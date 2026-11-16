@@ -159,7 +159,7 @@ def test_patch_is_idempotent(tmp_path, patch_module):
 
     assert once == twice
     assert once.count('"--dump-highpoly"') == 1
-    assert once.count("image-to-3dlab: keep the full-resolution mesh") == 1
+    assert once.count("Ar3DRAHub: keep the full-resolution mesh") == 1
 
 
 def test_patch_refuses_an_unrecognised_file(tmp_path, patch_module):

@@ -39,7 +39,7 @@ DEFAULT_TARGET = Path(
 
 _HELPER = '''
 
-# --- image-to-3dlab: weld before simplify ------------------------------------------
+# --- Ar3DRAHub: weld before simplify ------------------------------------------
 # repair_non_manifold_edges() splits vertices, creating exact duplicates. QEM collapse
 # cannot cross them, so simplify() tears the surface apart at every seam. Weld first.
 def {marker}(mesh):
@@ -64,10 +64,10 @@ def {marker}(mesh):
         torch.as_tensor(welded_f, dtype=torch.int32).contiguous(),
     )
     print(
-        f"  [image-to-3dlab] welded {{duplicates}} duplicate vertices "
+        f"  [Ar3DRAHub] welded {{duplicates}} duplicate vertices "
         f"({{len(f)}} -> {{len(welded_f)}} faces) before simplify"
     )
-# --- end image-to-3dlab -------------------------------------------------------------
+# --- end Ar3DRAHub -------------------------------------------------------------
 '''
 
 _SIMPLIFY = re.compile(r"^(\s*)mesh\.simplify\(", re.MULTILINE)

@@ -29,7 +29,7 @@ NEEDLE = (
     "        pipeline.rembg_model = getattr(rembg, "
     "args['rembg_model']['name'])(**args['rembg_model']['args'])"
 )
-MARKER = "# image-to-3dlab: BRIA RMBG-2.0 is never loaded"
+MARKER = "# Ar3DRAHub: BRIA RMBG-2.0 is never loaded"
 REPLACEMENT = (
     f"        {MARKER} (licence guardrail).\n"
     "        # Inputs are cut out by Ar3DRAHub/matte.py before they get here.\n"

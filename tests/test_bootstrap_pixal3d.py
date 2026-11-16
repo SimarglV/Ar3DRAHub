@@ -103,7 +103,7 @@ def test_missing_prebuilt_is_none():
 
 
 def test_the_prebuilt_comes_from_this_repo_and_the_workflow_builds_the_pinned_commit():
-    assert "/repos/Bingeljell/image-to-3dlab/" in boot.RELEASE_API
+    assert "/repos/SimarglV/Ar3DRAHub/" in boot.RELEASE_API
     workflow = (boot.REPO / ".github" / "workflows" / "pixal3d-nvidia.yml").read_text()
     for name, _ in boot.PREBUILTS.values():
         assert name in workflow

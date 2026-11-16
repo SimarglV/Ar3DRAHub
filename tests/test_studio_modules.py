@@ -1171,8 +1171,8 @@ def test_the_picture_guide_renders_from_the_real_doc():
     out = _run("guide.js", f"""
       const html = m.renderGuide({json.dumps(doc)});
       console.log(JSON.stringify({{ html, links: [
-        m.isGuideLink('https://github.com/Bingeljell/image-to-3dlab/blob/main/docs/prompt-guide.md'),
-        m.isGuideLink('https://github.com/Bingeljell/image-to-3dlab/blob/main/README.md')] }}));""")
+        m.isGuideLink('https://github.com/SimarglV/Ar3DRAHub/blob/main/docs/prompt-guide.md'),
+        m.isGuideLink('https://github.com/SimarglV/Ar3DRAHub/blob/main/README.md')] }}));""")
     html = out["html"]
     assert html.startswith("<h2>Picking a picture")
     assert '<img src="/docs/images/prompt-guide-style-and-pose.jpg"' in html   # served by the studio

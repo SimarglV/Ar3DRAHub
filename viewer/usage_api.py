@@ -281,7 +281,7 @@ def payload(current: dict[str, Any], day: str) -> dict[str, Any]:
 
 def _post(body: dict[str, Any]) -> None:
     request = urllib.request.Request(USAGE_URL, data=json.dumps(body).encode(), method="POST", headers={
-        "Content-Type": "application/json", "User-Agent": "assetfurnace-usage"})
+        "Content-Type": "application/json", "User-Agent": "Ar3DRAHub-usage"})
     with urllib.request.urlopen(request, timeout=5) as response:
         response.read()
 

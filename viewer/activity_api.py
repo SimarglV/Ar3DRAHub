@@ -79,7 +79,7 @@ def plain_error(message: str) -> str:
 
 def multipart(fields: dict[str, str], files: dict[str, tuple[str, bytes]]) -> tuple[bytes, str]:
     """A multipart/form-data body, as a browser's FormData would send it."""
-    boundary = f"----assetfurnace{uuid.uuid4().hex}"
+    boundary = f"----Ar3DRAHub{uuid.uuid4().hex}"
     parts: list[bytes] = []
     for name, value in fields.items():
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())

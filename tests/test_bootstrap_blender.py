@@ -98,5 +98,5 @@ def test_downloads_do_not_look_like_a_bot():
     server.server_close()
     # Named honestly, not dressed up as a browser.
     assert seen["agent"].startswith("Ar3DRAHub/")
-    assert "github.com/Bingeljell/image-to-3dlab" in seen["agent"]
+    assert "github.com/SimarglV/Ar3DRAHub" in seen["agent"]
     assert "Mozilla" not in seen["agent"]

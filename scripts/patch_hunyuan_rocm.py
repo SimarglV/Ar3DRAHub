@@ -35,7 +35,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor" / "hunyuan-rocm" / "Hunyuan3D-2.1"
 
-MARKER = "# image-to-3dlab:"
+MARKER = "# Ar3DRAHub:"
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,7 @@ ATTN_REPLACEMENT = (
     "            )"
 )
 ATTN_IMPORT_NEEDLE = "import torch.nn.functional as F"
-ATTN_IMPORT_REPLACEMENT = ATTN_IMPORT_NEEDLE + "\nimport os  # image-to-3dlab: the chunk size"
+ATTN_IMPORT_REPLACEMENT = ATTN_IMPORT_NEEDLE + "\nimport os  # Ar3DRAHub: the chunk size"
 
 
 # --- 3. The hardcoded device --------------------------------------------------------------
@@ -117,7 +117,7 @@ DEVICE_NEEDLE = (
     '.to("cuda:0")'
 )
 DEVICE_REPLACEMENT = (
-    "            # image-to-3dlab: follow the tensor rather than naming a device, so CPU\n"
+    "            # Ar3DRAHub: follow the tensor rather than naming a device, so CPU\n"
     '            # offload still works. ".to(\'cuda:0\')" resolves under ROCm but\n'
     "            # overrides offloading, which is the other lever on a small card.\n"
     '            processed_hs = rearrange(pbr_hs, "b n_pbrs n l c -> (b n_pbrs n) l c")'
@@ -130,7 +130,7 @@ PATCHES = (
     Patch(SCHEDULER_FILE, SCHEDULER_NEEDLE, SCHEDULER_REPLACEMENT,
           proof="nearest match, not float equality", expected=SCHEDULER_EXPECTED),
     Patch(ATTN_FILE, ATTN_IMPORT_NEEDLE, ATTN_IMPORT_REPLACEMENT,
-          proof="import os  # image-to-3dlab", needle_survives=True),
+          proof="import os  # Ar3DRAHub", needle_survives=True),
     Patch(ATTN_FILE, ATTN_NEEDLE, ATTN_REPLACEMENT,
           proof="chunk the sequence axis"),
     Patch(ATTN_FILE, DEVICE_NEEDLE, DEVICE_REPLACEMENT,

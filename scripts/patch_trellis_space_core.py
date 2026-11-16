@@ -66,7 +66,7 @@ def patch_sparse_attention(root: Path) -> bool:
     anchor = '''    else:
         raise ValueError(f"Unknown attention module: {config.ATTN}")'''
     replacement = '''    elif config.ATTN == 'sdpa':
-        # image-to-3dlab: evaluate each packed sequence independently with
+        # Ar3DRAHub: evaluate each packed sequence independently with
         # PyTorch SDPA.  This preserves FlashAttention's block-diagonal
         # semantics without padding or a dense cross-sequence mask.
         #
@@ -104,7 +104,7 @@ def patch_sparse_attention(root: Path) -> bool:
             kv_offset += kv_length
         out = torch.cat(out_parts, dim=0)
     elif config.ATTN == 'metal_flash':
-        # image-to-3dlab: Pedro's fused Metal kernel implements the same packed,
+        # Ar3DRAHub: Pedro's fused Metal kernel implements the same packed,
         # variable-length equation used by Microsoft's FlashAttention path for
         # head dimensions up to 64. TRELLIS.2-4B uses 128-wide heads, where
         # Pedro silently falls back to an unusably slow serial kernel.
@@ -162,7 +162,7 @@ def patch_image_feature_extractor(root: Path) -> bool:
         self.model.cpu()'''
     device_lifecycle = '''    @property
     def device(self):
-        # image-to-3dlab: keep preprocessing tensors beside the DINO model.
+        # Ar3DRAHub: keep preprocessing tensors beside the DINO model.
         return next(self.model.parameters()).device
 
     def to(self, device):

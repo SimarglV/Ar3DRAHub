@@ -14,7 +14,7 @@ def patch(path: Path) -> None:
         "args['rembg_model']['name'])(**args['rembg_model']['args'])"
     )
     replacement = (
-        "        # image-to-3dlab disables separately licensed background models.\n"
+        "        # Ar3DRAHub disables separately licensed background models.\n"
         "        # Inputs must already contain a non-opaque alpha channel.\n"
         "        pipeline.rembg_model = None"
     )

@@ -102,7 +102,7 @@ class ComfyUIClient:
                     files={"image": (remote_name, handle, mime)},
                     data={
                         "type": "input",
-                        "subfolder": "image-to-3dlab",
+                        "subfolder": "Ar3DRAHub",
                         "overwrite": "false",
                     },
                     timeout=120,

@@ -19,7 +19,7 @@ from Ar3DRAHub.matte import matte_model
 # Who made the file. `made_with` sits beside the licence, never inside it: it says which
 # app produced the asset, and must never read as if the studio licenses the model.
 MADE_WITH_NAME = "Ar3DRA Hub"
-MADE_WITH_URL = "https://github.com/LinzhanMou/UniMate"
+MADE_WITH_URL = "https://github.com/SimarglV/Ar3DRAHub"
 
 GLB_MAGIC = 0x46546C67
 GLB_JSON_CHUNK = 0x4E4F534A

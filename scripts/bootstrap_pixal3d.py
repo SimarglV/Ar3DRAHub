@@ -83,7 +83,7 @@ MAC_COMMIT = "c89126d7c8daabcd7635c73bc826e33107bcd038"
 # theirs is compiled for 2016-17 cards only and lacks our patches (8 steps, and the clean-up
 # dump the Pixal3D Finish reruns) and post-replay. A pre-release on this repo.
 PREBUILT_RELEASE = "pixal3d-nvidia-c89126d-r1"
-RELEASE_API = "https://api.github.com/repos/Bingeljell/image-to-3dlab/releases/tags/{tag}"
+RELEASE_API = "https://api.github.com/repos/SimarglV/Ar3DRAHub/releases/tags/{tag}"
 
 # CUDA 12 rather than upstream's unversioned CUDA build (which is newer): CUDA 12 runs on
 # older drivers, and the runtime is bundled either way. "Older" has a floor, though: the

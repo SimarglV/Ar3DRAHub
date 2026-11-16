@@ -63,11 +63,15 @@ fresh computer: [`INSTALL.md`](INSTALL.md) (Russian).
 | `.venv` | 3.10 | UniMate: motion sampling, `rig_preprocess`, mesh animation | `install.bat` (Windows) / `bash install.sh` (Linux) — downloads the checkpoint (~6 GB, asks first) |
 | `.venv-studio` | 3.11 | The studio server, engines, rigging, MCP | `install_studio.ps1` (Windows) / `bash install_studio.sh` (macOS / Linux) — packages only |
 
+One double-click on Windows runs both: `setup.bat` (asks once, ~6 GB checkpoint included).
+
 ```powershell
 # Windows
-install.bat              # UniMate's environment + checkpoint
-powershell -ExecutionPolicy ByPass -File install_studio.ps1   # the studio's packages
+setup.bat                # everything in one click: both environments + checkpoint
+install.bat              # UniMate's environment + checkpoint only
+install_studio.bat       # the studio's packages only
 .\lab                    # the studio opens in your browser (run.bat does the same)
+run_mcp.bat              # the MCP server for agents (lab mcp does the same)
 ```
 
 ```bash

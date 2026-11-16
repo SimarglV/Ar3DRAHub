@@ -36,7 +36,7 @@ def patch_file(path: Path, transform) -> bool:
 def patch_mtlbvh_python(root: Path) -> bool:
     path = root / "deps/mtlbvh/mtlbvh/bvh.py"
     return_anchor = "        return self._impl.unsigned_distance(positions, return_uvw, out_id)"
-    chunked = '''        # image-to-3dlab: bound each command buffer on dense TRELLIS meshes.
+    chunked = '''        # Ar3DRAHub: bound each command buffer on dense TRELLIS meshes.
         # Queries are independent, so chunking preserves the exact result.
         chunk_size = int(os.environ.get("MTLBVH_QUERY_CHUNK", "65536"))
         if chunk_size <= 0 or positions.shape[0] <= chunk_size:

@@ -35,7 +35,7 @@ NEEDLE = (
 
 REPLACEMENT = '''    print(f"\\nMesh: {verts.shape[0]:,} vertices, {faces.shape[0]:,} triangles")
 
-    # image-to-3dlab: keep the full-resolution mesh before decimation. It is the bake
+    # Ar3DRAHub: keep the full-resolution mesh before decimation. It is the bake
     # source for a normal map, and the only moment it exists on disk.
     if getattr(args, "dump_highpoly", None):
         # Both imported locally: generate.py imports neither at module scope, and a
@@ -76,7 +76,7 @@ def patch(path: Path) -> None:
             raise RuntimeError(f"expected TRELLIS CLI option anchor not found in {path}")
         source = source.replace(OPTION_ANCHOR, OPTION + OPTION_ANCHOR)
 
-    if "image-to-3dlab: keep the full-resolution mesh" not in source:
+    if "Ar3DRAHub: keep the full-resolution mesh" not in source:
         if NEEDLE not in source:
             raise RuntimeError(f"expected mesh-report line not found in {path}")
         source = source.replace(NEEDLE, REPLACEMENT)

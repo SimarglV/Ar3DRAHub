@@ -43,7 +43,7 @@ def supported(system: str, machine: str) -> bool:
 # download.blender.org sits behind Cloudflare, which refuses Python-urllib's anonymous
 # default User-Agent (403, error 1010). We say who we are instead, honestly; that passes.
 # No browser disguise: a site that turns this away has decided, and we respect it.
-USER_AGENT = f"Ar3DRAHub/{__version__} (+https://github.com/Bingeljell/image-to-3dlab)"
+USER_AGENT = f"Ar3DRAHub/{__version__} (+https://github.com/SimarglV/Ar3DRAHub)"
 
 
 def open_url(url: str, method: str = "GET"):

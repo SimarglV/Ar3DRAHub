@@ -12,7 +12,7 @@ docstring, so a new script is not finished until it is listed here.
 **Blender helpers (`blender_*.py`, `hero_blender.py`) are meant for agents as much as people.** Each
 docstring has a `Run (live|headless|internal): ...` line: *live* drives the user's open Blender through the
 BlenderMCP add-on on port 9876, *headless* starts its own background Blender, *internal* is part of another
-helper. An agent connected to AssetFurnace's MCP (`./lab mcp`) gets the same list from its `blender_helpers`
+helper. An agent connected to Ar3DRAHub's MCP (`./lab mcp`) gets the same list from its `blender_helpers`
 tool; a test fails if a helper has no Run line.
 
 Most tools print their real documentation with `--help`; the docstring at the top of
@@ -217,16 +217,6 @@ tuning checklist. Manual fitting and visual weight/deformation review remain req
 | `blender_rigify_walk_cycle.py` | Author a trot cycle on the Rigify-generated 'rig' armature in the live Blender scene. |
 | `blender_idle_cycle.py` | Author a looping idle for the rigged fox. |
 | `blender_attack_cycle.py` | Author a slam-attack clip on a rigged quadruped in the live Blender scene. |
-
-## Project upkeep
-
-Numbers about the project itself, not about any asset.
-
-| Script | What it does |
-|---|---|
-| `discord_release_card.py` | Post a GitHub release to Discord as a tidy card instead of a bare link. |
-| `discord_pr_card.py` | Post a GitHub pull request to Discord as a tidy card, like the release cards. |
-| `repo_traffic.py` | Save a repo's GitHub traffic and its one-line install counts into one CSV, a row per day. |
 
 ## Vendor patches
 
