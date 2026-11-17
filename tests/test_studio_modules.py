@@ -864,6 +864,22 @@ def test_create_remembers_open_and_closed_advanced_sections():
 
 
 @needs_node
+def test_rig_source_selector_maps_a_builtin_name_to_builtin_and_passes_upload_path_through():
+    out = _run("create.js", """
+      const names = ['crab', 'dragon', 'human'];
+      console.log(JSON.stringify({
+        builtin: m.rigSourceSelection('human', names),
+        upload: m.rigSourceSelection('upload', names),
+        path: m.rigSourceSelection('path', names),
+      }));""")
+    assert out == {
+        "builtin": {"src": "builtin", "builtin": "human"},
+        "upload": {"src": "upload", "builtin": ""},
+        "path": {"src": "path", "builtin": ""},
+    }
+
+
+@needs_node
 def test_create_picture_toggle_preserves_each_advanced_section_open_state():
     """Changing picture settings rerenders the real Create template, preserving details."""
     out = _run("create.js", """

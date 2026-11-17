@@ -136,6 +136,13 @@ export function detailStates(details) {
   return Object.fromEntries([...details].map((detail) => [detail.dataset.detail, detail.open]));
 }
 
+/** Map a rig-source selector value to (src, builtin): a built-in name becomes
+ *  ('builtin', name); 'upload' / 'path' pass through with no built-in. */
+export function rigSourceSelection(value, builtinNames) {
+  if (builtinNames.includes(value)) return { src: 'builtin', builtin: value };
+  return { src: value, builtin: '' };
+}
+
 /** Show the Create sheet over the viewer. `onStart(plan)` runs a chain; `onRigDone(url, name,
  *  path)` shows a rig source's finished motion (a direct /api/motion/import job, no chain). */
 export function openCreate({ stage, recipes, engines, presets, motionPrompts = [], frontBack = null, pictureEngines = [], machinePresets = [], prefill = null, onStart, onReview = null, onRigDone = null, onSourceChange = null }) {
@@ -405,7 +412,12 @@ export function openCreate({ stage, recipes, engines, presets, motionPrompts = [
     // the rig source: a built-in example, an upload, or a path on this machine
     const rigsrc = q('[data-rigsrc]');
     if (rigsrc) {
-      rigsrc.onchange = () => { state.rigSrc = rigsrc.value; render(); };
+      rigsrc.onchange = () => {
+        const pick = rigSourceSelection(rigsrc.value, builtins.map((b) => b.name));
+        state.rigSrc = pick.src;
+        if (pick.builtin) state.rigBuiltin = pick.builtin;
+        render();
+      };
       const rigUpload = q('[data-rigupload]'), rigDrop = q('[data-rigdrop]');
       if (rigDrop) {
         rigDrop.onclick = () => rigUpload.click();
