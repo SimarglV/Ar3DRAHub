@@ -28,6 +28,13 @@ def test_the_back_prompt_names_no_body_parts():
     assert not words & {"head", "body", "neck", "shoulders", "clothing", "arms", "legs", "ears"}
 
 
+def test_the_back_prompt_is_a_half_turn_not_a_flip():
+    # "Seen from behind" alone reads as a mirror, which keeps the palms facing the camera.
+    prompt = back_view.BACK_PROMPT.lower()
+    for phrase in ("far side", "faced away now faces the camera"):
+        assert phrase in prompt
+
+
 def test_the_back_prompt_holds_the_front_outline():
     # Pixal3D builds whatever the back adds, so the back keeps the front's outline.
     prompt = back_view.BACK_PROMPT.lower()
