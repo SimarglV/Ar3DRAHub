@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="docs/images/studio-idea-to-animated-character.webp" width="426"
-       alt="The studio: type a sentence, pick a kind of character, watch it build and move.">
+       alt="The studio: type a sentence, watch the creature build, then move by text.">
 </p>
 
 <p align="center">

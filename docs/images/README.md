@@ -39,8 +39,8 @@ The files below are not doc screenshots and follow their own rules.
   ```
 
 - **`studio-idea-to-animated-character.webp`** — the studio at work: a sentence typed, a
-  creature built, then moved by text. A 426x240 screen recording, every frame kept at its
-  original 70 ms, quality 45 (~0.6 MB), built with Pillow as above. Small on purpose: the
+  creature built, then moved by text. A 426x240 screen recording, 217 frames at their
+  original 70 ms, quality 32 (~0.7 MB), built with Pillow as above. Small on purpose: the
   recording was small, and a README picture that takes ten seconds to load helps nobody.
   Record at 720p or more next time.
 

@@ -13,7 +13,7 @@
 .progress-track { height: 9px; margin: 12px 0 16px; background: var(--coal); border-radius: 99px; overflow: hidden; }
 /* Every track's fill, not just Generate's: the Finish panel's bar was an id this rule
    never named, so it sat empty for the whole run (found 2026-09-21). */
-.progress-track > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--ember), #ff9447); transition: width .2s; }
+.progress-track > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--ember), #a9b045); transition: width .2s; }
 .setup-page { max-width: 860px; margin: 0 auto; }
 .setup-head { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
 .setup-head h2 { margin: 0 0 4px; }
@@ -35,7 +35,7 @@
 .setup-hf-form input { flex: 1; }
 .setup-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 18px 0 10px; }
 .setup-tab { border-radius: 8px 8px 0 0; }
-.setup-tab[aria-selected="true"] { background: var(--raise); border-color: var(--ember); color: #fff; }
+.setup-tab[aria-selected="true"] { background: var(--raise); border-color: var(--ember); color: #00ffff; }
 /* A build with no percentage: a sliding band, so the bar never sits empty. */
 .progress-track.busy > div { width: 30% !important; animation: setup-busy 1.4s ease-in-out infinite; }
 @keyframes setup-busy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
@@ -81,7 +81,7 @@
   background: #e8c37a; }
 .setup-run.cancelled .setup-run-title { opacity: .7; }
 .setup-run.running .progress-track > div {
-  background: linear-gradient(90deg, var(--ember), #ff9447); }
+  background: linear-gradient(90deg, var(--ember), #a9b045); }
 .setup-backends .setup-run { margin-top: 0; }
 .setup-run-head { display: flex; justify-content: space-between; align-items: center; }
 .setup-run-detail { font-size: 12px; opacity: .8; margin-top: 4px; }
