@@ -80,6 +80,19 @@ def test_a_folder_without_cond_is_not_an_imported_rig(output):
     assert "bare" not in _by_name(aa.list_assets(output))
 
 
+def test_a_motion_result_is_an_animated_character(output):
+    run = output / "motion" / "crab__motion__20261117-135337"
+    _write(run / "samples" / "animated" / "Crab-an_object_walks_forward-rep_0-0.glb", b"ANIMATED", 8000)
+    motions = [a for a in aa.list_assets(output) if a.get("motion")]
+    assert len(motions) == 1
+    crab = motions[0]
+    assert crab["kind"] == "character" and crab["stage"] == "animated"
+    assert crab["rigged"].endswith("Crab-an_object_walks_forward-rep_0-0.glb")
+    assert crab["clips"][0]["file"].endswith("Crab-an_object_walks_forward-rep_0-0.glb")
+    assert crab["picture"] is None and crab["model"] is None and crab["finished"] is None
+    assert crab["fits_moves"] is False
+
+
 def test_a_full_chain_becomes_one_animated_asset(output):
     knight = _by_name(aa.list_assets(output))["a chunky knight"]
     assert knight["kind"] == "character"

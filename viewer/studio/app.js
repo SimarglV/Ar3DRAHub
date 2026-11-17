@@ -985,7 +985,11 @@ function openFile(file) {
 $('openBtn').addEventListener('click', () => $('openFile').click());
 $('openFile').addEventListener('change', (event) => { openFile(event.target.files[0]); event.target.value = ''; });
 
-function showMotionResult(glbUrl, name, path) {
+async function showMotionResult(glbUrl, name, path) {
+  await refreshAssets();
+  const made = assets.find((a) => a.motion && a.rigged === path) || null;
+  if (made) { show(made); return; }
+  // The Library hasn't picked the result up; still show the GLB itself.
   viewingStep = null;
   viewingPictures = false;
   $('vTitle').textContent = name;

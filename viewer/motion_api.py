@@ -13,7 +13,8 @@ environments' numpy pins):
 
 The animated GLB is copied into the rig's folder as ``<base>_<slug>.glb`` when the source is
 a rig run's ``_rigged.glb``, so the Library lists it beside the rig like a preset clip.
-Otherwise it lands in the run directory below. One job at a time: the sampler holds the GPU.
+Otherwise it lands in the run directory below, and the Library lists each animated GLB as its
+own asset (``assets_api._motions``). One job at a time: the sampler holds the GPU.
 
     output/motion/<stem>__motion__<stamp>/
         asset/            cond.npy + canonical GLB (the adaptation)

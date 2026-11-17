@@ -33,6 +33,7 @@ if str(SCRIPTS) not in sys.path:
 
 FINISH_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__finish__\d{8}-\d{6}(?:-\d+)?$")
 RIG_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__rig__\d{8}-\d{6}(?:-\d+)?$")
+MOTION_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__motion__\d{8}-\d{6}(?:-\d+)?$")
 PROPS_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__props__\d{8}-\d{6}(?:-\d+)?$")
 # Folders under output/ that hold other steps' runs, not 3D generations.
 NOT_GENERATED = {"finish", "props", "images", "rig-rebind", "animate", "motion", "skins"}
@@ -334,6 +335,25 @@ def _imported_rigs(output: Path) -> list[dict[str, Any]]:
     return found
 
 
+def _motions(output: Path) -> list[dict[str, Any]]:
+    """Animated GLBs the text-motion step wrote (Create's "A rig" source): one per repetition,
+    under ``output/motion/<stem>__motion__<stamp>/samples/animated/``. They are standalone — no
+    family tree — so each is its own Library entry."""
+    found = []
+    root = output / "motion"
+    if not root.is_dir():
+        return found
+    for run in sorted(root.iterdir()):
+        if not run.is_dir() or not MOTION_RUN.fullmatch(run.name):
+            continue
+        animated = run / "samples" / "animated"
+        if not animated.is_dir():
+            continue
+        for glb in sorted(animated.glob("*.glb")):
+            found.append({"stem": glb.stem, "file": glb, "run": run})
+    return found
+
+
 def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
     """Every asset on disk, the one touched most recently first. `with_runs` adds the run folders
     that belong to this version alone (what deleting it would remove); the Library list never needs them."""
@@ -345,6 +365,7 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
     step_times, prop_wording = _step_times(history), _prop_wording()
     pictures, models, finishes = _pictures(output), _models(output), _finishes(output)
     rigs, sets = _rigs(output), _prop_sets(output)
+    motions = _motions(output)
 
     # One family tree per picture: picture -> 3D models -> finishes -> rigs (a prop sheet hangs off a
     # model). Each branch end is its own asset, so a re-rig or a second 3D model is a new version
@@ -542,6 +563,24 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             "clips": [], "props": [], "timings": {}, "updated": rig["mtime"],
             "imported": True,
             **({"runs": [rel(rig["dir"])]} if with_runs else {}),
+        })
+    # Text-motion results (Create's "A rig" source): a standalone animated GLB per repetition,
+    # no family tree. The GLB carries its own animation, so it is both the rigged file and the
+    # one clip.
+    for motion in motions:
+        glb = rel(motion["file"])
+        asset_id = hashlib.sha1(("motion/" + motion["stem"]).encode()).hexdigest()[:12]
+        assets.append({
+            "id": asset_id, "family": asset_id, "version": 1, "versions": 1,
+            "name": friendly_name(motion["stem"]), "kind": "character", "stage": "animated",
+            "picture": None, "prompt": None, "picture_settings": None, "picture_want": None,
+            "back": None, "model": None, "finished": None, "pixel_match": None,
+            "rigged": glb,
+            "fits_moves": False, "facing": None,
+            "clips": [{"name": friendly_name(motion["stem"]), "file": glb}],
+            "props": [], "timings": {}, "updated": motion["file"].stat().st_mtime,
+            "motion": True,
+            **({"runs": [rel(motion["run"])]} if with_runs else {}),
         })
     hashes.save()   # the rig facts read above are cached too
     meta = _read_meta(output)
