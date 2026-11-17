@@ -33,7 +33,7 @@ sentence / picture → 3D model → finish → rig → UniMate motion → animat
   "A character moved by text": UniMate animates the model's own skeleton — no auto-rig,
   so any creature works. Tick "Review the joint labels first" to fix the labels and
   facing before building. Built-in examples and rigs already on disk sit under the same
-  sheet's "A rig" source (the **Rig examples** button opens it). Results come with
+  sheet's "A rig" source (Start from → A rig). Results come with
   rendered videos, and prompts can be chained into one long clip. See
   [`docs/unimate-motion.md`](docs/unimate-motion.md).
 - **The studio.** Your Library, one 3D viewer and a Steps panel. Every step is a button too,

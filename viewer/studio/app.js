@@ -985,11 +985,6 @@ function openFile(file) {
 $('openBtn').addEventListener('click', () => $('openFile').click());
 $('openFile').addEventListener('change', (event) => { openFile(event.target.files[0]); event.target.value = ''; });
 
-// Rig examples: Create's text-motion sheet, opened on the "A rig" source.
-$('motionBtn').addEventListener('click', () => {
-  openCreateSheet({ want: 'motion', have: 'rig' });
-});
-
 function showMotionResult(glbUrl, name, path) {
   viewingStep = null;
   viewingPictures = false;

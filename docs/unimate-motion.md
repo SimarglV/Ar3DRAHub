@@ -6,9 +6,9 @@ the second.
 
 ## How to run it in the studio
 
-**Create → A 3D model → A character moved by text** is the one place for it, and the
-**Rig examples** button opens the same sheet on its "A rig" source. Every route animates
-the skeleton the model already has — there is no auto-rig:
+**Create → A 3D model → A character moved by text** is the one place for it; the sheet's
+**Start from → A rig** covers built-in examples, a rig on this machine and your own file.
+Every route animates the skeleton the model already has — there is no auto-rig:
 
 - **an idea or a picture** — the generated model carries its own skeleton, and UniMate
   reads its bones. Tick **Review the joint labels first** when the bone names are
