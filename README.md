@@ -10,6 +10,11 @@
 </p>
 
 <p align="center">
+  <img src="docs/images/studio-idea-to-animated-character.webp" width="426"
+       alt="The studio: type a sentence, pick a kind of character, watch it build and move.">
+</p>
+
+<p align="center">
   This repository joins <a href="https://linzhanmou.com/unimate/">UniMate</a> (one unified model that
   animates any skeleton from text) with the open studio —
   the pipeline that makes the picture, the 3D model and the skeleton that UniMate then moves.

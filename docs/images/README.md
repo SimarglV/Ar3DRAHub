@@ -25,7 +25,7 @@ sips -Z 1600 -s format jpeg -s formatOptions 65 input.png --out docs/images/name
 
 ## Exceptions to "JPEG only"
 
-Two files here are not doc screenshots and follow different rules.
+The files below are not doc screenshots and follow their own rules.
 
 - **`turntable-*.webp`** — an animated WebP in the README. A still cannot show that the
   result is a real model rather than a flattering angle, which is the one thing a reader
@@ -38,9 +38,11 @@ Two files here are not doc screenshots and follow different rules.
                  duration=200, loop=0, quality=42, method=6)
   ```
 
-- **`hero-sentence-to-moving-character.webp`** — the README's top picture: a sentence typed,
-  then the picture, model, skeleton and moves. Cut from the 0.4.0 reveal video, first 15 s,
-  432px wide, 10 fps, quality 50 (~0.7 MB), built with Pillow as above.
+- **`studio-idea-to-animated-character.webp`** — the studio at work: a sentence typed, a
+  creature built, then moved by text. A 426x240 screen recording, every frame kept at its
+  original 70 ms, quality 45 (~0.6 MB), built with Pillow as above. Small on purpose: the
+  recording was small, and a README picture that takes ten seconds to load helps nobody.
+  Record at 720p or more next time.
 
 - **`social-preview.jpg`** — 1280x640, the card shown when the repo is linked on X, Slack
   or Discord. **It is not referenced by any page.** GitHub only uses it once uploaded under
