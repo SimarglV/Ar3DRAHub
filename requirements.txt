@@ -1,5 +1,5 @@
 # UniMate unified environment — one env for everything: data processing,
-# rendering, training, inference and evaluation (Python 3.10, CUDA 12.4).
+# rendering, training, inference and evaluation (Python 3.10, CUDA 12.8).
 #
 #   conda create -n unimate python=3.10 -y
 #   conda activate unimate
@@ -18,8 +18,11 @@
 # `mathutils` / `bmesh` need no line of their own (they ship inside the bpy
 # wheel), nor does `mpl_toolkits` (inside matplotlib).
 
-# PyTorch cu124 wheels (torch / torchvision "+cu124" pins below)
---extra-index-url https://download.pytorch.org/whl/cu124
+# PyTorch cu128 wheels (torch / torchvision "+cu128" pins below). cu128, not
+# cu124: RTX 50-series / RTX PRO 6000 cards (compute capability 12.0, Blackwell)
+# have no kernels in torch 2.5.1+cu124, and cu128 still builds for every older
+# architecture, so the newer build is a strict superset.
+--extra-index-url https://download.pytorch.org/whl/cu128
 # Blender official wheel index — PyPI no longer hosts cp310 bpy wheels
 --extra-index-url https://download.blender.org/pypi/
 
@@ -27,11 +30,11 @@ setuptools<81                   # keeps pkg_resources available (Motion build)
 
 # ── Core / training ──────────────────────────────────────────────────────────
 numpy==2.2.6
-torch==2.5.1+cu124
+torch==2.7.1+cu128
 # Pulled in by the CLIP text encoder (clip/clip.py imports torchvision.transforms
-# at module load). Pinned to the matching +cu124 build so pip cannot resolve a
+# at module load). Pinned to the matching +cu128 build so pip cannot resolve a
 # torchvision compiled against a different torch/CUDA and drag torch with it.
-torchvision==0.20.1+cu124
+torchvision==0.22.1+cu128
 torch-geometric==2.7.0          # GCN graph embedding (use_graph_emb)
 torchdiffeq==0.2.5              # ODE/SDE integrators for flow matching
 einops==0.8.2
