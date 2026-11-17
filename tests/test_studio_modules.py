@@ -1263,6 +1263,20 @@ def test_a_finished_step_can_be_run_again_as_a_new_version():
 
 
 @needs_node
+def test_a_rig_with_no_unrigged_model_offers_no_edit_or_rerig():
+    out = _run("steps.js", """
+      const motion = { kind: 'character', rigged: 'motion/x.glb', finished: null, model: null, motion: true };
+      const character = { kind: 'character', rigged: 'r/k.glb', finished: 'f/k.glb', model: 'm/k.glb' };
+      console.log(JSON.stringify({
+        motion: m.stepBody('rigged', motion, {}),
+        character: m.stepBody('rigged', character, {}),
+      }));""")
+    assert "Edit this skeleton" not in out["motion"] and "Re-rig" not in out["motion"]
+    assert "no unrigged model" in out["motion"]
+    assert "Edit this skeleton" in out["character"]
+
+
+@needs_node
 def test_a_deletion_is_described_in_plain_words_and_sizes():
     out = _run("library.js", """
       const folders = (...paths) => ({ folders: paths.map((path) => ({ path })) });

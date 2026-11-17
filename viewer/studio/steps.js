@@ -69,6 +69,12 @@ export function stepBody(stepId, asset, ctx) {
       : controls);
   }
   if (stepId === 'rigged') {
+    // A UniMate motion result or an imported rig has a skeleton but no unrigged model to
+    // re-rig against, so the hand-rig and re-rig options (which re-weight `finished`/`model`)
+    // are not offered.
+    if (asset.rigged && !asset.finished && !asset.model) {
+      return '<p class="hint">The skeleton is already here, and there is no unrigged model to re-rig. UniMate animates the skeleton this asset already has.</p>';
+    }
     const both = asset.finished && asset.model;
     const body = `<p class="hint">Adds a skeleton so it can move. About a minute. Works best on a character standing in a T-pose (an A-pose works too) with empty hands.</p>
       ${both ? '<label class="field">Rig which model<select data-k="rigsource"><option value="finished">The finished model</option><option value="model">The raw model (skips Finish)</option></select></label>' : ''}
