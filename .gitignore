@@ -15,7 +15,9 @@ env/
 # Checkpoints, samples, imported rigs and the UniML3D dataset are all
 # reproduced locally and must not be committed.
 outputs/
-dataset/
+# Anchored to the repo root: `unimate/dataset/` is tracked source code, not
+# the ignored top-level UniML3D dataset directory.
+/dataset/
 data/
 
 # ── OS / editor ─────────────────────────────────────────────────────────────
