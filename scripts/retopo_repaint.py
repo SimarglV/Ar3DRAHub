@@ -350,6 +350,11 @@ def build_parser() -> argparse.ArgumentParser:
              "the model. Try it when a feature lands twice (a ghost eye) or slides off its place",
     )
     parser.add_argument(
+        "--fade-normals", action="store_true",
+        help="flatten the baked normal map where Pixel Match painted, since the photo carries its "
+             "own shading there. Off by default: the full normal relief is kept everywhere",
+    )
+    parser.add_argument(
         "--native-dump", type=Path, default=None,
         help="Pixal3D's own clean-up input (<run>.post.bin, saved by pixal3d_generate.py): "
              "rerun Pixal3D's clean-up at --faces instead of retopologising. Cleaner on "
@@ -540,7 +545,7 @@ def main() -> int:
         else:
             emit_stage("bake", "Baking normal map and surface from the original")
             # Flat normals where the picture painted: it carries its own shading there.
-            if args.views is not None and steps["photo_weights"].is_file():
+            if args.views is not None and args.fade_normals and steps["photo_weights"].is_file():
                 fade = normal_fade_mask(steps["photo_weights"], args.atlas, steps["photo_fade"])
             _run(bake_command(args.source, current, baked, args.atlas, args.blender, fade),
                  steps["bake_log"], "bake")

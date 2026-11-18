@@ -61,6 +61,18 @@ def test_the_frame_permutes_and_flips_axes():
     assert pp.to_view_space(points, IDENTITY, mesh_scale=2.0).tolist() == [[0.5, 1.0, 1.5]]
 
 
+def test_from_view_space_round_trips_every_frame_and_scale():
+    frame = ((0, 2, 1), (-1, 1, 1))
+    points = np.array([[1.0, 2.0, 3.0], [-4.0, 0.5, 0.25]])
+    for scale in (1.0, 0.5, 2.5):
+        view = pp.to_view_space(points, frame, scale)
+        assert np.allclose(pp.from_view_space(view, frame, scale), points)
+    # Directions ignore the uniform scale when asked to.
+    n = pp.from_view_space(pp.to_view_space(points, frame, 3.0), frame, mesh_scale=1.0)
+    assert np.allclose(n / np.linalg.norm(n, axis=1, keepdims=True),
+                       points / np.linalg.norm(points, axis=1, keepdims=True))
+
+
 def test_rasterize_covers_pixel_centres_inside_a_square():
     tri_xy = np.array([[[2, 2], [6, 2], [6, 6]], [[2, 2], [6, 6], [2, 6]]], dtype=float)
     face_of, _ = pp.rasterize(tri_xy, np.zeros((2, 3)), (8, 8))
@@ -237,6 +249,60 @@ def test_swapping_the_texture_changes_nothing_else(tmp_path):
     assert len(trimesh.load(io.BytesIO(swapped), file_type="glb").geometry) == 1
     length = struct.unpack_from("<I", swapped, 8)[0]
     assert length == len(swapped)
+
+
+def _glb_with_normals_and_tangents() -> bytes:
+    """A trimesh GLB with NORMAL and TANGENT attributes appended, as the bake step leaves them.
+
+    trimesh's own exporter drops those attributes, which is exactly the flat-shading bug
+    these byte-level writers exist to avoid -- so a test GLB has to inject them by hand.
+    """
+    positions, _, _ = _quad()
+    normals = np.tile([0.0, 0.0, 1.0], (len(positions), 1)).astype("<f4")
+    tangents = np.tile([1.0, 0.0, 0.0, 1.0], (len(positions), 1)).astype("<f4")
+    doc, binary = pp._split_glb(_textured_glb())
+    primitive = [m for mesh in doc["meshes"] for m in mesh["primitives"]][0]
+    for name, arr in (("NORMAL", normals), ("TANGENT", tangents)):
+        raw = arr.tobytes()
+        binary += b"\0" * (-len(binary) % 4)
+        view_index = len(doc["bufferViews"])
+        doc["bufferViews"].append(
+            {"buffer": 0, "byteOffset": len(binary), "byteLength": len(raw)})
+        binary += raw
+        accessor = {"bufferView": view_index, "componentType": 5126,
+                    "count": len(positions), "type": "VEC3" if name == "NORMAL" else "VEC4"}
+        doc["accessors"].append(accessor)
+        primitive["attributes"][name] = len(doc["accessors"]) - 1
+    doc["buffers"][0]["byteLength"] = len(binary)
+    return pp._join_glb(doc, binary)
+
+
+def test_swapping_textures_keeps_the_normals_and_tangents(tmp_path):
+    """The regression for the flat-shaded "faceted diamond": geometry must survive a swap."""
+    original = _glb_with_normals_and_tangents()
+    doc, _ = pp._split_glb(original)
+    primitive = [m for mesh in doc["meshes"] for m in mesh["primitives"]][0]
+    assert set(primitive["attributes"]) >= {"NORMAL", "TANGENT"}
+
+    swapped = pp.replace_base_colour(
+        original, pp.encode_png(np.full((8, 8, 3), 10, dtype=np.uint8)))
+    path = tmp_path / "s.glb"
+    path.write_bytes(swapped)
+    _positions, _uvs, _, _texture, normals, tangents = pp.read_surface(path)
+    assert np.allclose(normals, [0, 0, 1])
+    assert np.allclose(tangents[:, :3], [1, 0, 0]) and np.allclose(tangents[:, 3], 1.0)
+
+
+def test_adding_a_normal_texture_when_the_material_has_none(tmp_path):
+    data = _textured_glb()
+    doc, _ = pp._split_glb(data)
+    assert "normalTexture" not in doc["materials"][0]
+    png = pp.encode_png(np.full((8, 8, 3), 128, dtype=np.uint8))
+    with_normal = pp.add_normal_texture(data, png)
+    doc, binary = pp._split_glb(with_normal)
+    assert "normalTexture" in doc["materials"][0]
+    image = pp.read_image(doc, binary, pp.normal_texture_image_index(doc))
+    assert image.shape[:2] == (8, 8)
 
 
 def _webp_only_glb(colour=(90, 60, 30)) -> bytes:

@@ -213,6 +213,21 @@ LICENSES = {
         conditions=(FLUX_OUTPUT_RIGHTS,),
         models=("black-forest-labs/FLUX.2-klein-4B", "Qwen/Qwen3-4B"),
     ),
+    # Marigold V2 is Apache-2.0 all the way down: the dense-predictor code and models
+    # (LoRA adapters + fine-tuned VAE decoders), and the Qwen-Image-Edit-2509 backbone it
+    # runs on (checked on the Hugging Face card 2026-11-17). The GGUF build is a
+    # quantisation of the same Apache-2.0 model.
+    "marigold-v2": LicenseProfile(
+        classification="commercial-clear",
+        folder="commercial",
+        license_name="Apache-2.0",
+        license_url="https://huggingface.co/huawei-bayerlab/marigold-v2-0",
+        conditions=(
+            "Marigold V2 code and models are Apache-2.0.",
+            "The Qwen-Image-Edit-2509 backbone is Apache-2.0.",
+        ),
+        models=("huawei-bayerlab/marigold-v2-0", "Qwen/Qwen-Image-Edit-2509"),
+    ),
 }
 
 

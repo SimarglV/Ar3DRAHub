@@ -16,6 +16,9 @@ This lab builds on other people's models and ports. Thank you.
 - [Qwen-Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) (Qwen Research License),
   run by [leejet/stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp)
   (MIT). Built with Qwen.
+- [Marigold V2](https://huggingface.co/huawei-bayerlab/marigold-v2-0) (Apache-2.0) over a
+  [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) backbone, for
+  the Finish de-light and (optional) surface-normals pass.
 - [VAST-AI SkinTokens](https://github.com/VAST-AI-Research/SkinTokens) (MIT): the
   studio's auto-rig, which gives a humanoid its skeleton and skin weights.
 - [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo): the studio's preset moves were

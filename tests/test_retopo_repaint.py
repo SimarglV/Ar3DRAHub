@@ -278,6 +278,11 @@ def test_edge_fade_is_on_unless_the_run_turns_it_off():
     assert off.inner_edge == 0.0 and off.cutout_edge > 0      # only the inner-edge fade goes
 
 
+def test_fading_the_normal_map_where_photo_painted_is_opt_in():
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb"]).fade_normals is False
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb", "--fade-normals"]).fade_normals is True
+
+
 def test_nudge_is_on_unless_the_run_turns_it_off():
     assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb"]).no_nudge is False
     assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb", "--no-nudge"]).no_nudge is True

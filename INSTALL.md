@@ -87,6 +87,10 @@ bash install_studio.sh
    (`scripts/bootstrap_blender.py` ставит Blender 4.2 LTS в `~/blender-lts/`).
 3. Карточка **UniMate** уже должна быть зелёной (✓ ready) — значит чекпойнт из шага 3
    на месте.
+4. (Необязательно) **Marigold V2** — для де-лайта текстуры в Finish. Карточка на той же
+   странице ставит своё окружение + веса (~22 ГБ, NVIDIA/CUDA) и спрашивает согласие.
+   Из командной строки: `python scripts/bootstrap_marigold_v2.py --yes`. Без неё Finish
+   просто пропускает де-лайт; нормаль-карта от Marigold включается отдельно.
 
 Дальше: **+ Create** → «Start from: An idea» → «I want: A character moved by text» →
 опишите персонажа и напишите промпт движения (например `An object walks forward.`) →

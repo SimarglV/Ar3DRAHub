@@ -45,6 +45,10 @@ sentence / picture → 3D model → finish → rig → UniMate motion → animat
   so you can stop after any of them.
 - **Low poly, high quality.** Pixel Match puts your picture's real pixels back on the model,
   so text, logos and faces stay sharp even at ~5k faces.
+- **Marigold de-light.** Finish can de-light the texture with Marigold V2 — it removes the
+  photo's own shadows and highlights from the base colour, so the engine's lighting doesn't
+  double up. Surface normals from Marigold are a separate opt-in, and by default neither
+  Pixel Match nor Marigold touches the normal map.
 - **One prompt, nine props.** Prop sheets turn one picture into separate, game-ready props
   with LODs.
 - **Your pick of models, all local.** Pixal3D, TRELLIS.2 and Hunyuan3D behind one studio and
@@ -93,7 +97,9 @@ Then, in the studio:
    Each button states the size and licence and asks first.
 2. Install **Blender 4.2+** yourself if you want Finish (the low-poly clean-up). The Setup
    page shows whether it was found.
-3. **+ Create** → *An idea* → *A character moved by text* → describe it, write a motion
+3. (Optional) **Marigold V2** on the Setup page de-lights the Finish texture (~22 GB,
+   NVIDIA + CUDA). Skip it and Finish still runs.
+4. **+ Create** → *An idea* → *A character moved by text* → describe it, write a motion
    prompt → **Make it**.
 
 ### Where the models live

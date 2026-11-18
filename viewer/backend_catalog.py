@@ -989,6 +989,35 @@ CATALOG: tuple[Backend, ...] = (
                       pattern="*_mv.gguf"),
         ),
     ),
+    Backend(
+        id="marigold-v2",
+        label="Marigold V2 (depth / normals / albedo)",
+        kind="tool",
+        best_for=("Reads one picture into a depth map, camera-space surface normals and unlit "
+                  "albedo, for the Finish step to de-light a texture and add surface relief."),
+        tradeoff=("NVIDIA only, and about 17 GB of GPU memory to run. Its own venv, set up "
+                  "separately from the studio."),
+        license_name="Apache-2.0",
+        license_url="https://huggingface.co/huawei-bayerlab/marigold-v2-0",
+        install="scripts/bootstrap_marigold_v2.py",
+        runs_on=(NVIDIA,),
+        setup_minutes=15,
+        build_probes=(venv_python(REPO / "vendor" / "marigold-v2"),),
+        weights=(
+            WeightSet("Qwen-Image-Edit-2509 VAE + DiT config", "Qwen/Qwen-Image-Edit-2509",
+                      int(0.24 * GB),
+                      _models_home.vendor_models("marigold-v2") / "Qwen-Image-Edit-2509",
+                      note="Only the VAE and the DiT config; the DiT weights come from the "
+                           "GGUF below."),
+            WeightSet("Qwen-Image-Edit-2509 Q6_K (GGUF)", "QuantStack/Qwen-Image-Edit-2509-GGUF",
+                      int(16.8 * GB),
+                      _models_home.vendor_models("marigold-v2") / "gguf"),
+            WeightSet("Marigold V2 checkpoints + prompt embeddings",
+                      "huawei-bayerlab/marigold-v2-0", int(5.6 * GB),
+                      _models_home.vendor_models("marigold-v2") / "Marigold-V2",
+                      note="depth/normals/albedo trainables and the frozen prompt embeddings."),
+        ),
+    ),
 )
 
 BY_ID = {backend.id: backend for backend in CATALOG}

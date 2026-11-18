@@ -81,6 +81,21 @@ def to_view_space(points: np.ndarray, frame=PIXAL3D_FRAME, mesh_scale: float = 1
     return np.stack([signs[i] * points[:, perm[i]] for i in range(3)], axis=1) / mesh_scale
 
 
+def from_view_space(points: np.ndarray, frame=PIXAL3D_FRAME, mesh_scale: float = 1.0) -> np.ndarray:
+    """The coordinate frame the view cameras live in -> GLB coordinates.
+
+    The inverse of `to_view_space`. The frame is a signed permutation of the axes, so the
+    inverse is the same permutation with the signs applied back the other way, times the
+    mesh scale. Pass ``mesh_scale=1.0`` for directions (normals), which a uniform scale
+    leaves unchanged.
+    """
+    perm, signs = frame
+    out = np.empty_like(points)
+    for i in range(3):
+        out[:, perm[i]] = signs[i] * points[:, i]
+    return out * mesh_scale
+
+
 def project(points: np.ndarray, view: View) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Points in view space -> (x, y) pixel coordinates and depth in front of the camera.
 
@@ -289,14 +304,18 @@ class Settings:
 DEFAULT_SETTINGS = Settings()
 
 
-def view_weights(texel_points: np.ndarray, texel_normals: np.ndarray, view: View,
-                 view_positions: np.ndarray, faces: np.ndarray,
-                 settings: Settings | None = None, outward: float | None = None
-                 ) -> tuple[np.ndarray, np.ndarray]:
-    """How much to trust this view's pixel at each texel, and that pixel's colour.
+def view_projection(texel_points: np.ndarray, texel_normals: np.ndarray, view: View,
+                    view_positions: np.ndarray, faces: np.ndarray,
+                    settings: Settings | None = None, outward: float | None = None
+                    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """How much to trust this view's pixel at each texel, and that pixel's coordinates.
 
-    Everything is in view space. `view_positions` are the mesh's vertices (for the
-    camera's own depth buffer), `texel_points` / `texel_normals` the surface at each texel.
+    Returns (weight, x, y): the same blend weight `view_weights` reports, plus the
+    view-pixel coordinates it was measured at, so a caller can sample a *different* image
+    at exactly the pixels Pixel Match painted from -- Marigold's albedo and normal maps,
+    which share the view's framing. Everything is in view space; `view_positions` are the
+    mesh's vertices (for the camera's own depth buffer), `texel_points` / `texel_normals`
+    the surface at each texel.
     """
     settings = settings or DEFAULT_SETTINGS
     height, width = view.image.shape[:2]
@@ -339,6 +358,20 @@ def view_weights(texel_points: np.ndarray, texel_normals: np.ndarray, view: View
 
     weight = visible * smoothstep(facing, settings.facing_low, settings.facing_high) \
         * smoothstep(edge, 0.0, 1.0) * matte
+    return weight, x, y
+
+
+def view_weights(texel_points: np.ndarray, texel_normals: np.ndarray, view: View,
+                 view_positions: np.ndarray, faces: np.ndarray,
+                 settings: Settings | None = None, outward: float | None = None
+                 ) -> tuple[np.ndarray, np.ndarray]:
+    """How much to trust this view's pixel at each texel, and that pixel's colour.
+
+    Everything is in view space. `view_positions` are the mesh's vertices (for the
+    camera's own depth buffer), `texel_points` / `texel_normals` the surface at each texel.
+    """
+    weight, x, y = view_projection(texel_points, texel_normals, view, view_positions,
+                                   faces, settings, outward)
     return weight, sample_rgb(view.image, x, y)
 
 
@@ -575,6 +608,31 @@ def base_colour_image_index(doc: dict) -> int:
     return webp["source"]
 
 
+def normal_texture_image_index(doc: dict) -> int:
+    """The image index the (single) material uses as its normal map."""
+    materials = doc.get("materials") or []
+    if len(materials) != 1:
+        raise ValueError(f"expected one material, found {len(materials)}")
+    normal = materials[0].get("normalTexture")
+    if normal is None:
+        raise ValueError("the material has no normal texture")
+    entry = doc["textures"][normal["index"]]
+    if "source" in entry:
+        return entry["source"]
+    webp = entry.get("extensions", {}).get("EXT_texture_webp", {})
+    if "source" not in webp:
+        raise ValueError("the normal texture has no image this reader understands")
+    return webp["source"]
+
+
+def read_image(doc: dict, binary: bytes, image_index: int) -> np.ndarray:
+    """One embedded image, as an RGB(A) uint8 array."""
+    view = doc["bufferViews"][doc["images"][image_index]["bufferView"]]
+    start = view.get("byteOffset", 0)
+    picture = Image.open(io.BytesIO(binary[start:start + view["byteLength"]]))
+    return np.asarray(picture.convert("RGBA" if "A" in picture.getbands() else "RGB"))
+
+
 def read_glb(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Positions, glTF UVs, triangle indices and the base colour image of a one-mesh GLB.
 
@@ -600,14 +658,37 @@ def read_glb(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray
     return positions, uvs, faces, texture
 
 
-def replace_base_colour(data: bytes, png: bytes) -> bytes:
-    """Return the GLB with its base colour image swapped for `png`, all else unchanged.
+def read_surface(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+                                       np.ndarray, np.ndarray]:
+    """Positions, glTF UVs, faces, base colour, and the mesh's own normals + tangents.
+
+    The normals (V, 3) and tangents (V, 4) are the exact smooth frame the renderer reads;
+    the tangent's ``w`` is the Mikktspace handedness bit. Baking a normal map against them
+    matches the engine instead of re-deriving a frame from the UVs (which is where flat
+    facets and an inverted green channel sneak in).
+    """
+    doc, binary = _split_glb(Path(path).read_bytes())
+    primitives = [p for mesh in doc["meshes"] for p in mesh["primitives"]]
+    if len(primitives) != 1:
+        raise ValueError(f"expected one primitive, found {len(primitives)}")
+    attributes = primitives[0]["attributes"]
+    positions = _accessor(doc, binary, attributes["POSITION"]).astype(np.float64)
+    uvs = _accessor(doc, binary, attributes["TEXCOORD_0"]).astype(np.float64)
+    faces = _accessor(doc, binary, primitives[0]["indices"]).reshape(-1, 3).astype(np.int64)
+    normals = _accessor(doc, binary, attributes["NORMAL"]).astype(np.float64)
+    tangents = _accessor(doc, binary, attributes["TANGENT"]).astype(np.float64)
+    texture = read_image(doc, binary, base_colour_image_index(doc))
+    return positions, uvs, faces, texture, normals, tangents
+
+
+def replace_image(data: bytes, png: bytes, image_index: int) -> bytes:
+    """Return the GLB with image `image_index` swapped for `png`, all else unchanged.
 
     Buffer views are repacked in order with glTF's 4-byte alignment; only the image's own
-    view changes size.
+    view changes size, so the geometry (positions, normals, tangents) is preserved.
     """
     doc, binary = _split_glb(data)
-    target = doc["images"][base_colour_image_index(doc)]["bufferView"]
+    target = doc["images"][image_index]["bufferView"]
     chunks = []
     for index, view in enumerate(doc["bufferViews"]):
         start = view.get("byteOffset", 0)
@@ -619,10 +700,47 @@ def replace_base_colour(data: bytes, png: bytes) -> bytes:
         view["byteLength"] = len(chunk)
         packed += chunk
     doc["buffers"][0]["byteLength"] = len(packed)
-    image = base_colour_image_index(doc)
-    doc["images"][image]["mimeType"] = "image/png"
-    _drop_webp_extension(doc, image)
+    doc["images"][image_index]["mimeType"] = "image/png"
+    _drop_webp_extension(doc, image_index)
     return _join_glb(doc, packed)
+
+
+def replace_base_colour(data: bytes, png: bytes) -> bytes:
+    """Return the GLB with its base colour image swapped for `png`, all else unchanged."""
+    doc, _ = _split_glb(data)
+    return replace_image(data, png, base_colour_image_index(doc))
+
+
+def add_normal_texture(data: bytes, png: bytes) -> bytes:
+    """Add a normal map to a GLB that has none, reusing the base colour's sampler.
+
+    The image is appended as a new buffer view, a texture entry points at it, and the
+    material's `normalTexture` is set. Every geometry byte is left untouched.
+    """
+    doc, binary = _split_glb(data)
+    materials = doc["materials"]
+    if len(materials) != 1:
+        raise ValueError(f"expected one material, found {len(materials)}")
+    image_index = len(doc["images"])
+    view_index = len(doc["bufferViews"])
+    doc["images"].append({"bufferView": view_index, "mimeType": "image/png"})
+
+    sampler = None
+    base = materials[0].get("pbrMetallicRoughness", {}).get("baseColorTexture")
+    if base is not None:
+        sampler = doc["textures"][base["index"]].get("sampler")
+    texture_index = len(doc["textures"])
+    entry: dict = {"source": image_index}
+    if sampler is not None:
+        entry["sampler"] = sampler
+    doc["textures"].append(entry)
+    materials[0]["normalTexture"] = {"index": texture_index}
+
+    binary += b"\0" * (-len(binary) % 4)
+    doc["bufferViews"].append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(png)})
+    binary += png
+    doc["buffers"][0]["byteLength"] = len(binary)
+    return _join_glb(doc, binary)
 
 
 def _drop_webp_extension(doc: dict, image: int) -> None:

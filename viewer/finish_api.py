@@ -33,13 +33,15 @@ import usage_api
 
 from Ar3DRAHub import blender as blender_lookup
 from Ar3DRAHub import processes
-from Ar3DRAHub.host import APPLE, host_platform
+from Ar3DRAHub.host import APPLE, host_platform, venv_python
 
 OUTPUT_ROOT = REPO / "output" / "finish"
 # Where generation runs (and their records) live, for matching an uploaded model to the run
 # that made it.
 GENERATED_ROOT = REPO / "output"
 WORKER = REPO / "scripts" / "retopo_repaint.py"
+# The optional Marigold de-light + normal-map pass, run on the finished model afterwards.
+MARIGOLD_FINISH = REPO / "scripts" / "marigold_finish.py"
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 # The exact shape `create` builds — a resume takes its directory name from a URL, so
 # the name is matched against the generator rather than merely sanitised.
@@ -76,11 +78,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "paint_seed": 0, "paint_res": 512, "paint_steps": 15, "paint_tex": 4096,
     "texture_size": 2048, "skip_paint": True, "skip_compress": False, "skip_bake": False,
     "skip_photo": False, "keep_mesh": False, "skip_edge_fade": False, "skip_nudge": False,
-    "high_detail": False, "hero": False,
+    "high_detail": False, "hero": False, "marigold": False,
+    "marigold_normals": False, "photo_fade_normals": False,
 }
 
 BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge",
-                 "high_detail", "hero"}
+                 "high_detail", "hero", "marigold", "marigold_normals", "photo_fade_normals"}
 
 INTEGER_SETTINGS = {
     "faces", "atlas", "paint_seed", "paint_res", "paint_steps", "paint_tex", "texture_size",
@@ -235,6 +238,8 @@ def build_command(
         command.append("--no-edge-fade")
     if settings.get("skip_nudge"):
         command.append("--no-nudge")
+    if settings.get("photo_fade_normals"):
+        command.append("--fade-normals")
     if settings.get("high_detail"):
         command += ["--detail", "high"]
     if resume:
@@ -255,6 +260,51 @@ def hero_command(job: FinishJob, settings: dict[str, Any]) -> list[str]:
         "--body-faces", str(settings["faces"]),
         "--result", str(job.result_glb),
     ]
+
+
+def marigold_ready(job: FinishJob) -> bool:
+    """Whether the Marigold pass can run: its venv is built and the front view is saved."""
+    return (venv_python(REPO / "vendor" / "marigold-v2").is_file()
+            and (job.views_dir / "view_000.png").is_file())
+
+
+def marigold_command(job: FinishJob) -> list[str]:
+    """Run the Marigold de-light (+ optional normal bake) on the finished model, in place."""
+    command = [sys.executable, "-u", str(MARIGOLD_FINISH), str(job.result_glb),
+               "--views", str(job.views_dir), "--output", str(job.result_glb)]
+    if not job.settings.get("marigold_normals"):
+        command.append("--no-normals")
+    return command
+
+
+def run_marigold(job: FinishJob) -> tuple[bool, str | None]:
+    """The optional Marigold pass after the worker. Returns (ran, note).
+
+    `note` says why it was skipped or failed; the finished model is kept either way.
+    """
+    if not job.settings.get("marigold"):
+        return False, None
+    if not marigold_ready(job):
+        return False, ("Marigold skipped: it needs Marigold V2 in Setup, and a Pixal3D "
+                       "model with its saved camera.")
+    message = "Marigold: de-lighting the front and baking surface normals" \
+        if job.settings.get("marigold_normals") else "Marigold: de-lighting the front"
+    job.emit({"phase": "marigold", "overall_pct": 98, "message": message})
+    process = subprocess.Popen(
+        marigold_command(job), cwd=str(REPO), env=processes.child_env(),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1,
+        **processes.TEXT_PIPE, **processes.group_popen_kwargs(),
+    )
+    assert process.stdout is not None
+    for raw in process.stdout:
+        line = raw.rstrip("\n")
+        if line:
+            job.append_log(line)
+    code = process.wait()
+    job.append_log(f"marigold exited with code {code}")
+    if code != 0:
+        return False, "Marigold finish failed; the finished model was kept (see the log)"
+    return True, None
 
 
 def needed_inputs(job: FinishJob, settings: dict[str, Any]) -> list[Path]:
@@ -620,8 +670,10 @@ class FinishJobManager:
                 hero = bool(job.settings.get("hero"))
                 if hero and image is None:
                     raise ValueError("Hero needs the picture the model was made from.")
-                views = None if job.settings["skip_photo"] and not hero else find_source_views(
-                    asset, self.generated_root)
+                # The saved camera + views feed Pixel Match AND Marigold, so a Marigold-only
+                # run still needs them even though Pixel Match is off.
+                need_views = (not job.settings["skip_photo"]) or hero or job.settings.get("marigold")
+                views = find_source_views(asset, self.generated_root) if need_views else None
                 if hero and views is None:
                     raise ValueError("Hero works on Pixal3D models made from a picture: this model has no "
                                      "saved camera.")
@@ -746,6 +798,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 provenance = job.result_glb.with_suffix(".provenance.json")
                 if provenance.is_file():
                     shutil.copy(provenance, job.record_path)   # what record_url serves
+            marigold_ran, marigold_note = run_marigold(job)
             pixel_match = pixel_match_result(photo_ran, job.views_dir, job.settings)
             try:
                 (job.directory / PIXEL_MATCH_NAME).write_text(json.dumps({"pixel_match": pixel_match}),
@@ -766,6 +819,8 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 "path": library_path(job.result_glb),
                 "source_url": served_url(job.asset_path),
                 "pixal3d": (job.views_dir / "transforms.json").is_file(),
+                "marigold": marigold_ran,
+                "marigold_note": marigold_note,
                 "note": photo_note(job, job.settings),
             })
             job.status = "done"

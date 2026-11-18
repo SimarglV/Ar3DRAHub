@@ -624,6 +624,22 @@ def test_turning_nudge_off_tells_the_worker():
     assert "--no-nudge" in finish.build_command(job, finish.normalise_settings({"skip_nudge": True}))
 
 
+def test_fading_normals_where_pixel_match_painted_is_opt_in():
+    job = finish.FinishJob("0" * 32, Path("/tmp/fox__finish__20260921-122518"))
+    assert finish.normalise_settings({})["photo_fade_normals"] is False
+    assert "--fade-normals" not in finish.build_command(job, finish.normalise_settings({}))
+    assert "--fade-normals" in finish.build_command(
+        job, finish.normalise_settings({"photo_fade_normals": True}))
+
+
+def test_marigold_normals_are_opt_in_too():
+    job = finish.FinishJob("0" * 32, Path("/tmp/fox__finish__20260921-122518"))
+    assert finish.normalise_settings({})["marigold_normals"] is False
+    assert "--no-normals" in finish.marigold_command(job)                    # default: de-light only
+    job.settings["marigold_normals"] = True
+    assert "--no-normals" not in finish.marigold_command(job)
+
+
 # --- The Pixal3D route: link the run's clean-up dump in and hand it to the worker -------------
 
 

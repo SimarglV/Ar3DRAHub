@@ -1103,6 +1103,19 @@ def test_clay_and_normals_swap_the_paint_out_and_put_it_back():
 
 
 @needs_node
+def test_albedo_look_builds_one_unlit_material_per_paint_slot():
+    """Albedo is per-mesh: it shows each slot's own map unlit, so a multi-material mesh
+    keeps its groups instead of collapsing onto one shared material."""
+    out = _run("looks.js", """
+      const one = { material: { map: 'skin-map' }, userData: {} };
+      const many = { material: [{ map: 'robe-map' }, { map: 'belt-map' }], userData: {} };
+      const looks = { albedo: (paint) => 'UNLIT:' + paint.map };
+      m.applyLook([one, many], 'albedo', looks);
+      console.log(JSON.stringify({ one: one.material, many: many.material }));""")
+    assert out == {"one": "UNLIT:skin-map", "many": ["UNLIT:robe-map", "UNLIT:belt-map"]}
+
+
+@needs_node
 def test_the_face_count_reads_the_viewport_stats():
     out = _run("looks.js", """
       console.log(JSON.stringify([
@@ -1113,14 +1126,15 @@ def test_the_face_count_reads_the_viewport_stats():
     assert out == ["893,412 faces", "", ""]
 
 
-def test_the_viewer_offers_clay_and_normal_views():
+def test_the_viewer_offers_clay_normal_albedo_and_normal_map_views():
     """The buttons exist and are wired to the tested swap; the how-to page names them."""
     viewer = (REPO / "viewer" / "studio" / "viewer.js").read_text(encoding="utf-8")
-    for act in ("clay", "normal"):
+    for act in ("clay", "normal", "normalmap", "albedo"):
         assert f'data-act="{act}"' in viewer
     assert "applyLook(meshesOf(view.materials)" in viewer
     guide = (REPO / "viewer" / "studio" / "pages.js").read_text(encoding="utf-8")
-    assert "clay" in guide and "normals" in guide and "face count" in guide
+    assert "clay" in guide and "normals" in guide and "normal map" in guide and "albedo" in guide
+    assert "face count" in guide
 
 
 @needs_node
@@ -1502,7 +1516,9 @@ def test_steps_panel_runs_go_through_a_chain_so_a_reload_picks_them_up():
     assert out["finished"]["steps"] == ["finished"]
     assert out["finished"]["made"] == {"picture": "images/k/k.png", "model": "a/k.glb"}
     assert out["finished"]["finishSettings"] == {"faces": 32000, "hero": True, "skip_photo": False,
-                                                 "skip_edge_fade": False, "skip_nudge": True, "texture_size": 2048}
+                                                 "skip_edge_fade": False, "skip_nudge": True, "texture_size": 2048,
+                                                 "marigold": False, "marigold_normals": False,
+                                                 "photo_fade_normals": False}
     assert out["model"]["steps"] == ["model"] and out["model"]["engine"] == "pixal3d"
     assert out["rigged"]["made"]["finished"] == "finish/k/k_40k.glb" and "model" not in out["rigged"]["made"]
     assert out["rawRig"]["made"]["model"] == "a/k.glb" and "finished" not in out["rawRig"]["made"]

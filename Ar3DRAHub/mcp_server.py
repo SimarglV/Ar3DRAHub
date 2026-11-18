@@ -322,9 +322,14 @@ STEPS_AFTER_FINISH = ("rigged", "animated")
 
 
 def finish_choices(detail: str | int | None, pixel_match: bool = True, edge_fade: bool = True,
-                   nudge: bool = True) -> dict[str, Any]:
-    """What a plan tells Finish: a detail level (a name above, or a triangle count), Pixel Match, and
-    Pixel Match's edge fade and nudge."""
+                   nudge: bool = True, marigold: bool = False, marigold_normals: bool = False,
+                   photo_fade_normals: bool = False) -> dict[str, Any]:
+    """What a plan tells Finish: a detail level (a name above, or a triangle count), Pixel Match,
+    Pixel Match's edge fade and nudge, and the optional Marigold de-light (+ normals) pass.
+
+    Normals are opt-in on both fronts: Marigold de-lights but does not bake a normal map
+    unless `marigold_normals`, and Pixel Match leaves the baked normal relief alone unless
+    `photo_fade_normals` (which flattens it where the photo painted)."""
     out: dict[str, Any] = {}
     if detail is not None and str(detail).strip():
         text = str(detail).strip().lower()
@@ -342,6 +347,12 @@ def finish_choices(detail: str | int | None, pixel_match: bool = True, edge_fade
             out["skip_edge_fade"] = True
         if not nudge:
             out["skip_nudge"] = True
+        if photo_fade_normals:
+            out["photo_fade_normals"] = True
+    if marigold:
+        out["marigold"] = True
+        if marigold_normals:
+            out["marigold_normals"] = True
     return out
 
 
@@ -367,6 +378,18 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "step": "finished", "type": "bool", "default": True,
         "what": "Pixel Match first fits each picture onto the model's outline before painting.",
         "try_off_when": "a feature shows up twice (a ghost eye) or slides off its place, often on a turned head."},
+    "marigold": {
+        "step": "finished", "type": "bool", "default": False,
+        "what": "After Finish, Marigold V2 de-lights the front texture straight from the picture (surface normals are a separate opt-in).",
+        "try_off_when": None},
+    "marigold_normals": {
+        "step": "finished", "type": "bool", "default": False,
+        "what": "Marigold also bakes a surface normal map (on top of de-lighting). Off by default: de-light only.",
+        "try_off_when": None},
+    "photo_fade_normals": {
+        "step": "finished", "type": "bool", "default": False,
+        "what": "Pixel Match flattens the baked normal map where it paints, since the photo carries its own shading there. Off by default: the full normal relief is kept.",
+        "try_off_when": None},
     "texture_size": {
         "step": "finished", "type": "int", "choices": [1024, 2048, 4096], "default": 2048,
         "what": "Pixel size of the finished model's texture. Bigger is sharper and a bigger file."},
@@ -453,7 +476,8 @@ def read_advanced(advanced: dict[str, Any] | None) -> dict[str, Any]:
 
 def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool) -> tuple[dict, dict]:
     """(finish_settings, move_settings) for a plan, from the main Finish choices and `read_advanced`."""
-    finish = finish_choices(detail, pixel_match, adv["edge_fade"], adv["nudge"])
+    finish = finish_choices(detail, pixel_match, adv["edge_fade"], adv["nudge"], adv["marigold"],
+                            adv["marigold_normals"], adv["photo_fade_normals"])
     if adv["texture_size"] != ADVANCED["texture_size"]["default"]:
         finish["texture_size"] = adv["texture_size"]
     move: dict[str, Any] = {}

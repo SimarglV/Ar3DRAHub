@@ -525,7 +525,8 @@ def test_list_assets_rows_say_their_family_and_version(studio):
 # --------------------------------------------------------------------------- advanced knobs
 def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
-    assert set(out["advanced"]) == {"edge_fade", "nudge", "texture_size", "rig_from", "speed", "arms_away",
+    assert set(out["advanced"]) == {"edge_fade", "nudge", "marigold", "marigold_normals", "photo_fade_normals",
+                                    "texture_size", "rig_from", "speed", "arms_away",
                                     "in_place", "keep_everything"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
@@ -537,7 +538,8 @@ def test_every_studio_control_has_an_mcp_twin():
     controls = set(re.findall(r'data-k="(\w+)"', source)) - {"licence"}   # licence is a label, not a knob
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
-            "edgefade": "edge_fade", "nudge": "nudge", "texture": "texture_size", "rigsource": "rig_from",
+            "edgefade": "edge_fade", "nudge": "nudge", "marigold": "marigold", "marigoldnormals": "marigold_normals",
+            "fadenormals": "photo_fade_normals", "texture": "texture_size", "rigsource": "rig_from",
             "speed": "speed", "spread": "arms_away", "keep": "keep_everything", "inplace": "in_place",
             "picengine": "picture_engine", "change": "back_change",
             "motiontext": "motion_prompt", "mreps": "motion_repetitions",

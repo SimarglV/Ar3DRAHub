@@ -17,6 +17,8 @@ const ICON = {
   grid: '<svg viewBox="0 0 24 24"><path d="M3 15l9 5 9-5M3 15l9-5 9 5M7.5 12.5l9 5M16.5 12.5l-9 5"/></svg>',
   clay: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M8 9a5 5 0 0 1 5-2"/></svg>',
   normal: '<svg viewBox="0 0 24 24"><path d="M4 18h16"/><path d="M12 18V5M8 9l4-4 4 4"/></svg>',
+  albedo: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l6 6"/><circle cx="12" cy="12" r="1"/></svg>',
+  normalmap: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 16h16M10 4v16M16 4v16"/></svg>',
   bones: '<svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="M12 6v8M12 9l-5 3M12 9l5 3M12 14l-3 7M12 14l3 7"/></svg>',
   fix: '<svg viewBox="0 0 24 24"><path d="M14 4l6 6-9 9H5v-6z"/><path d="M12 6l6 6"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>',
@@ -71,6 +73,8 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
       <button class="tool" data-act="grid" aria-pressed="true" data-tip="Floor grid and the origin (0,0,0): red line is X, blue is Z" aria-label="Floor grid">${ICON.grid}</button>
       <button class="tool" data-act="clay" aria-pressed="false" data-tip="Clay: plain grey, so you judge the shape without the paint" aria-label="Clay view">${ICON.clay}</button>
       <button class="tool" data-act="normal" aria-pressed="false" data-tip="Normals: the surface's direction as colour; dents, lumps and flipped faces stand out" aria-label="Normal view">${ICON.normal}</button>
+      <button class="tool" data-act="normalmap" aria-pressed="false" data-tip="Normal map: the baked tangent-space surface detail (Marigold Finish adds one). Blue is flat, colour is relief" aria-label="Normal map view">${ICON.normalmap}</button>
+      <button class="tool" data-act="albedo" aria-pressed="false" data-tip="Albedo: the raw base colour with the lights off, to see what is painted (and any shadows baked into the texture)" aria-label="Albedo view">${ICON.albedo}</button>
       <button class="tool" data-act="bones" aria-pressed="false" data-tip="Show skeleton: the bones the auto-rig placed" aria-label="Show skeleton">${ICON.bones}</button>
       <button class="tool" data-act="fix" aria-pressed="false" data-tip="Fix a spot: click a hole or a messy patch to smooth it over and repaint it from your picture. Size it with the slider or [ and ]. Saves a new version" aria-label="Fix a spot">${ICON.fix}</button>
     </div>`;
@@ -158,10 +162,13 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     if (setCameraView(view, name)) requestRender();
   }
 
-  // one clay and one normal material for the viewer's life, shared by every mesh
+  // one clay and one normal material for the viewer's life, shared by every mesh; albedo is
+  // per-mesh, because it shows each mesh's own base-colour map with the lights off
   const looks = {
     clay: new THREE.MeshStandardMaterial({ color: 0x8a8580, roughness: 0.7, metalness: 0 }),
     normal: new THREE.MeshNormalMaterial(),
+    albedo: (paint) => new THREE.MeshBasicMaterial({ map: paint?.map ?? null }),
+    normalmap: (paint) => new THREE.MeshBasicMaterial({ map: paint?.normalMap ?? null }),
   };
 
   function setWireframe(on) {
@@ -199,10 +206,10 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
       return;
     }
     button.setAttribute('aria-pressed', String(on));
-    if (act === 'clay' || act === 'normal') {
-      // one look at a time: pressing one lets the other go
-      const other = tools.querySelector(`[data-act="${act === 'clay' ? 'normal' : 'clay'}"]`);
-      if (on) other.setAttribute('aria-pressed', 'false');
+    if (act === 'clay' || act === 'normal' || act === 'normalmap' || act === 'albedo') {
+      // one look at a time: pressing one lets the others go
+      if (on) ['clay', 'normal', 'normalmap', 'albedo'].filter((a) => a !== act)
+        .forEach((a) => tools.querySelector(`[data-act="${a}"]`).setAttribute('aria-pressed', 'false'));
       setLook(on ? act : 'paint');
     }
     if (act === 'wire') setWireframe(on);

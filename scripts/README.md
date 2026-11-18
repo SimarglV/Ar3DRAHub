@@ -46,6 +46,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_upscaler.py` | Install Real-ESRGAN x4plus, the 4x upscaler Hero face uses on the head crop. |
 | `bootstrap_flux_image.py` | Install FLUX.2 [klein] 4B, the studio's default picture engine, Apache-2.0 throughout. |
 | `bootstrap_qwen_image.py` | Install the text-to-image route: a stable-diffusion.cpp binary and Qwen-Image weights. |
+| `bootstrap_marigold_v2.py` | Install Marigold V2's native predictor: its own venv, then the weights if missing. |
 | `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac, NVIDIA or AMD. |
 | `hero_route.py` | Build a hero character: a full-body model with a high-detail head grafted on, as one GLB. |
 | `hero_blender.py` | Join a grafted head and body into one object, or render a check sheet, in a background Blender. |
@@ -107,6 +108,8 @@ The asset's surface, as opposed to its shape.
 | `paint_eyes.py` | Repaint a generated head's eyes into a dedicated high-resolution patch. |
 | `colour_match_albedo.py` | Grade a generated GLB's albedo toward the colour of its source concept art. |
 | `lift_lightness.py` | Brighten a GLB's albedo without shifting its colour. |
+| `marigold_v2_predict.py` | Predict Marigold V2 depth, normals, and albedo from one image, natively. |
+| `marigold_finish.py` | De-light a generated GLB and bake front+back normal maps with Marigold V2. |
 | `surface_detail.py` | Give a generated asset a surface: normal relief and roughness variation. |
 | `attach_normal_map.py` | Attach a baked normal map to a GLB's material. |
 | `restore_pbr_material.py` | Re-attach the metallicRoughness map that `--material-mode matte` orphaned. |

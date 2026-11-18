@@ -379,6 +379,12 @@ def test_a_plan_carries_its_finish_choices_to_the_finish_job(tmp_path):
     assert b'{"keep_mesh": true, "skip_photo": false}' in body
 
 
+def test_a_plan_carries_marigold_to_the_finish_job():
+    form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
+            "finish_settings": {"value": json.dumps({"keep_mesh": True, "marigold": True})}}
+    assert aa.chain_from_form(form).finish_settings == {"keep_mesh": True, "marigold": True}
+
+
 def test_a_plan_without_finish_choices_gets_finishs_defaults(tmp_path):
     chain = aa.chain_from_form({"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])}})
     assert chain.finish_settings == {}
