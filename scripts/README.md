@@ -31,6 +31,8 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_trellis_macos.sh` | Hand off to bootstrap_trellis_space_macos.py, the pinned Mac TRELLIS installer. |
 | `bootstrap_trellis_space_macos.py` | Bootstrap TRELLIS.2 on macOS from Microsoft's pinned Space source. |
 | `bootstrap_trellis_cuda.py` | Install TRELLIS.2 for Linux with an NVIDIA card: Microsoft's own code, built for CUDA. |
+| `bootstrap_hi3d.py` | Install Hi3D v1.0: the official Linux stack, or this repo's own Windows port. |
+| `patch_hi3d_sdpa.py` | Replace flash-attn with an SDPA fallback in the Hi3D v1.0 checkout, so refinement runs on Windows. |
 | `bootstrap_hunyuan_cuda.py` | Install Hunyuan3D-2.1 for Linux with an NVIDIA card: Tencent's own code, built for CUDA. |
 | `bootstrap_hunyuan_rocm.py` | Install Hunyuan3D-2.1 for Linux with an AMD card: Tencent's own code, built with HIP. |
 | `bootstrap_trellis_rocm.py` | Install TRELLIS.2 for Linux with an AMD card: Microsoft's own code, built with HIP. |
@@ -47,6 +49,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_flux_image.py` | Install FLUX.2 [klein] 4B, the studio's default picture engine, Apache-2.0 throughout. |
 | `bootstrap_qwen_image.py` | Install the text-to-image route: a stable-diffusion.cpp binary and Qwen-Image weights. |
 | `bootstrap_marigold_v2.py` | Install Marigold V2's native predictor: its own venv, then the weights if missing. |
+| `bootstrap_wativo.py` | Install WTiVo, the fast watertight rebuild, into vendor/wativo with its own interpreter. |
 | `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac, NVIDIA or AMD. |
 | `hero_route.py` | Build a hero character: a full-body model with a high-detail head grafted on, as one GLB. |
 | `hero_blender.py` | Join a grafted head and body into one object, or render a check sheet, in a background Blender. |
@@ -94,6 +97,7 @@ Everything here operates on a GLB or a cached decode and is headless.
 | `mesh_weld.py` | Weld vertices that share coordinates exactly, and drop the faces that collapse. |
 | `mesh_health.py` | Measure the structural health of a generated mesh, and optionally repair it. |
 | `fill_holes.py` | Close small holes in a generated mesh, leaving large openings alone. |
+| `watertight.py` | Rebuild a generated mesh as one closed solid, MIT and without CGAL. |
 | `remove_loose_parts.py` | Delete disconnected junk from a generated mesh, keeping the texture intact. |
 | `visibility_cull.py` | Pure helpers for visibility-based face culling: keep only what is seen from outside. |
 | `remesh_to_target.py` | Decimate a mesh to a target face count via fast_simplification, with timing. |
@@ -175,6 +179,7 @@ Heavier edits that need Blender's own operators rather than trimesh.
 | `blender_shrinkwrap.py` | Pull a clean remeshed surface back onto the original decode. |
 | `blender_visibility_cull.py` | Delete every face never seen from outside the mesh, headless. |
 | `blender_retopo_bake.py` | Quad-retopologise a generated mesh and transfer its texture onto the clean topology. |
+| `blender_hi3d_transfer.py` | Transfer the old mesh's texture onto Hi3D-refined geometry by ray-cast baking. |
 | `blender_split_props.py` | Split a multi-prop GLB into one upright, named object per prop, headless. |
 | `blender_reunwrap_bake.py` | Re-unwrap a generated mesh into coherent UV islands and re-bake its texture, headless. |
 | `blender_split_regions.py` | Split a generated mesh into per-region material slots, each with its own texture. |

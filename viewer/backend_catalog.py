@@ -83,6 +83,7 @@ def _local_trellis() -> tuple[Path, ...]:
     return tuple(found)
 
 GB = 1024 ** 3
+MB = 1024 ** 2
 
 # Which machines a backend can run on is per-backend data rather than one "is this a
 # Mac?" test, so a route gains NVIDIA support by adding a string to its `runs_on`. The
@@ -1016,6 +1017,80 @@ CATALOG: tuple[Backend, ...] = (
                       "huawei-bayerlab/marigold-v2-0", int(5.6 * GB),
                       _models_home.vendor_models("marigold-v2") / "Marigold-V2",
                       note="depth/normals/albedo trainables and the frozen prompt embeddings."),
+        ),
+    ),
+    Backend(
+        id="wativo",
+        label="WTiVo (faster watertight rebuild)",
+        kind="tool",
+        best_for=("Rebuilds a finished model as one closed body on the GPU in seconds instead of "
+                  "minutes, keeping noticeably finer detail than the built-in CPU rebuild. The "
+                  "Watertight step in Finish grows a 'Faster rebuild' checkbox once it is here."),
+        tradeoff=("Windows with an NVIDIA card only, and about 7 GB on disk for its own "
+                  "environment: its native extension is CPython 3.12 built against torch "
+                  "2.8.0, which the studio's own 3.11 cannot host. The built-in CPU rebuild "
+                  "works everywhere and needs no install."),
+        license_name="MIT (WTiVo); native extension built on CGAL (GPL-3.0-or-later)",
+        license_url="https://github.com/SimarglV/WatertightVoxel-ComfyuiNode",
+        install="scripts/bootstrap_wativo.py",
+        runs_on=(NVIDIA,),
+        # Windows only: the extension ships as a Windows .pyd. `os_family` says "linux"
+        # for a Linux box, so that is the family excluded; macOS never reports an NVIDIA
+        # host at all.
+        excludes=((NVIDIA, "linux"),),
+        setup_minutes=10,
+        build_probes=(venv_python(REPO / "vendor" / "wativo"),
+                      REPO / "vendor" / "wativo" / "wtivo.py"),
+        extra_steps=("It runs as a separate process: no GPL code is linked into the studio or "
+                     "shipped with a model. A model rebuilt by it records the tool in its "
+                     "provenance sidecar.",),
+        weights=(
+            WeightSet("WTiVo checkout (code + prebuilt CUDA extension)",
+                      "github.com/SimarglV/WatertightVoxel-ComfyuiNode", int(21 * MB),
+                      REPO / "vendor" / "wativo" / "build",
+                      note="A zip from GitHub, not a Hugging Face repo. The counted folder is "
+                           "build/, which carries the .pyd files and the TBB/GMP runtime they "
+                           "need; the checkout's scripts sit beside it."),
+            WeightSet("Its own environment: CPython 3.12 + torch 2.8.0 (CUDA 12.8)",
+                      "download.pytorch.org/whl/cu128", int(7.1 * GB),
+                      REPO / "vendor" / "wativo" / ".venv",
+                      note="Separate from the studio's environment on purpose: the extension is "
+                           "built for 3.12 and the studio runs 3.11. Measured after a real "
+                           "install, torch's CUDA libraries included. Kept out of build/ so the "
+                           "two sizes do not double-count."),
+        ),
+    ),
+    Backend(
+        id="hi3d",
+        label="Hi3D v1.0 geometry refinement",
+        kind="tool",
+        best_for=("Refines a coarse mesh's geometry against its reference picture: sharper folds, "
+                  "scales, teeth and grooves. Geometry only — no textures are generated, and the "
+                  "mesh is re-centred and normalised to unit radius."),
+        tradeoff=("NVIDIA only. On Linux it runs the official measured stack; on Windows this "
+                  "lab runs its own SDPA attention port because flash-attn has no Windows build. "
+                  "The authors measured on a 96 GB card: on smaller cards use the 512 detail "
+                  "with CPU offload."),
+        license_name="Hi3D Open License Agreement v1.0",
+        license_url="https://github.com/hi3d-official/Hi3Dv1.0/blob/main/LICENSE",
+        install="scripts/bootstrap_hi3d.py",
+        runs_on=(NVIDIA,),
+        setup_minutes=20,
+        build_probes=(venv_python(REPO / "vendor" / "hi3d"),
+                      REPO / "vendor" / "hi3d" / ".hi3d-build-complete"),
+        caveat=("Commercial use is allowed, but above 200,000 monthly users or USD 1,000,000 "
+                "monthly revenue the Hi3D licence needs a separate written agreement, and "
+                "commercial integrations must show 'Powered by Hi3D 1.0'."),
+        upstream=("Hi3D v1.0", "https://github.com/hi3d-official/Hi3Dv1.0"),
+        weights=(
+            WeightSet("Hi3D v1.0 model artifacts", "hi3d-official/Hi3Dv1.0",
+                      int(7.2 * GB), _models_home.vendor_models("hi3d"),
+                      note="The eight artifacts the loader consumes, materialised as real files "
+                           "(the loader refuses symlinks)."),
+            WeightSet("DINOv2-large image encoder", "facebook/dinov2-large",
+                      int(1.2 * GB), HF_HUB_DIR / "models--facebook--dinov2-large"),
+            WeightSet("CLIP ViT-L/14 image encoder", "openai/clip-vit-large-patch14",
+                      int(1.6 * GB), HF_HUB_DIR / "models--openai--clip-vit-large-patch14"),
         ),
     ),
 )

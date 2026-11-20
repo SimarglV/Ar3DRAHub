@@ -64,6 +64,31 @@ def test_a_non_numeric_value_is_rejected_with_its_key():
     assert "faces" in str(caught.value)
 
 
+def test_the_watertight_tool_is_validated_against_its_own_choices():
+    assert finish.normalise_settings({})["watertight_tool"] == "own"
+    assert finish.normalise_settings({"watertight_tool": "external"})["watertight_tool"] == "external"
+    with pytest.raises(ValueError) as caught:
+        finish.normalise_settings({"watertight_tool": "wativo"})
+    assert "watertight_tool" in str(caught.value)
+    assert "own" in str(caught.value) and "external" in str(caught.value)
+
+
+def test_the_wativo_resolution_is_one_of_the_two_measured_points():
+    assert finish.normalise_settings({})["watertight_wativo_res"] == 512
+    assert finish.normalise_settings({"watertight_wativo_res": 1536})["watertight_wativo_res"] == 1536
+    with pytest.raises(ValueError) as caught:
+        finish.normalise_settings({"watertight_wativo_res": 700})
+    assert "watertight_wativo_res" in str(caught.value)
+    assert "512" in str(caught.value) and "1536" in str(caught.value)
+
+
+def test_each_string_setting_carries_its_own_allowed_values():
+    """The enum lives beside its key, not bolted to `watertight_tool`: a second string
+    setting must never be validated against WTiVo's engine names."""
+    assert finish.STRING_SETTINGS == {"watertight_tool": ("own", "external")}
+    assert finish.CHOICE_SETTINGS == {"watertight_wativo_res": (512, 1536)}
+
+
 def test_unknown_keys_are_ignored_rather_than_forwarded():
     """A typo must not reach the command line as a stray flag."""
     settings = finish.normalise_settings({"facees": 1234, "metallic": 0.4})
@@ -81,6 +106,49 @@ def test_integer_settings_stay_integers():
 
 def test_zero_voxel_is_allowed_because_it_means_skip_the_remesh():
     assert finish.normalise_settings({"voxel": 0})["voxel"] == 0
+
+
+def test_hi3d_settings_are_accepted():
+    settings = finish.normalise_settings({"hi3d": True, "hi3d_resolution": 1024, "hi3d_texture": True})
+    assert settings["hi3d"] is True
+    assert settings["hi3d_resolution"] == 1024
+    assert settings["hi3d_texture"] is True
+
+
+def test_hi3d_texture_without_hi3d_is_refused():
+    manager = finish.FinishJobManager(Path("/tmp/finish"), Path("/tmp/none"))
+    with pytest.raises(ValueError, match="needs Hi3D refine"):
+        manager.create("knight.glb", b"glb", b"png", {"hi3d_texture": True})
+
+
+@pytest.mark.parametrize("resolution", [256, 512 + 128, 2048])
+def test_a_hi3d_resolution_outside_the_three_passes_is_rejected(resolution):
+    with pytest.raises(ValueError) as caught:
+        finish.normalise_settings({"hi3d": True, "hi3d_resolution": resolution})
+    assert "hi3d_resolution" in str(caught.value)
+
+
+def test_hi3d_is_dropped_off_nvidia():
+    settings = finish.fit_to_machine({"hi3d": True, "hi3d_texture": True}, platform=finish.APPLE)
+    assert settings["hi3d"] is False and settings["hi3d_texture"] is False
+    kept = finish.fit_to_machine({"hi3d": True, "hi3d_texture": True}, platform=finish.NVIDIA)
+    assert kept["hi3d"] is True and kept["hi3d_texture"] is True
+
+
+def test_hi3d_texture_without_hi3d_is_dropped_by_fit_to_machine():
+    settings = finish.fit_to_machine({"hi3d_texture": True}, platform=finish.NVIDIA)
+    assert settings["hi3d_texture"] is False
+
+
+def test_a_hi3d_result_is_named_hi3d():
+    name = finish.final_name("knight__pixal3d__20260101-010101", 20000, hi3d=True)
+    assert name == "knight_hi3d.glb"
+
+
+def test_a_hi3d_run_needs_the_picture():
+    job = finish.FinishJob("0" * 32, Path("/tmp/finish-job"))
+    assert finish.needed_inputs(job, {"hi3d": True}) == [job.asset_path, job.image_path]
+    assert finish.needed_inputs(job, {"skip_photo": True, "skip_paint": True}) == [job.asset_path]
 
 
 def test_the_command_carries_every_setting():
@@ -726,6 +794,202 @@ def test_hero_stages_match_the_route_it_runs():
     assert set(finish.HERO_STAGES) == set(finish.HERO_WEIGHTS)
 
 
+def test_a_hi3d_run_lands_the_refined_mesh_as_the_result(tmp_path, monkeypatch):
+    """The refine replaces the retopo worker: result is the refined GLB, with a record and
+    a licence sidecar chaining the source's licence with Hi3D's."""
+    import finish_api
+    from Ar3DRAHub import hi3d_backend
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"hi3d": True})
+    job.image_path.parent.mkdir(parents=True, exist_ok=True)
+    job.image_path.write_bytes(b"png")
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+    job.input_dir.mkdir(parents=True, exist_ok=True)
+
+    refined = job.directory / "steps" / "source_hi3d.glb"
+    refined.parent.mkdir(parents=True, exist_ok=True)
+    refined.write_bytes(valid_glb(generator="the hi3d refine"))
+
+    seen = {}
+
+    def fake_generate(image, coarse_mesh, output_dir, options, log=None):
+        seen["image"] = Path(image)
+        seen["coarse"] = Path(coarse_mesh)
+        seen["resolution"] = options.resolution
+        return refined
+
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d", fake_generate)
+    monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    finish_api.run_job(job, manager)
+    assert seen["image"] == job.image_path and seen["coarse"] == job.asset_path
+    assert seen["resolution"] == 512
+    assert job.status == "done"
+    assert job.result_glb.name == "knight_hi3d.glb"
+    from glb_fixtures import read_glb
+
+    gltf = read_glb(job.result_glb.read_bytes())[0]
+    assert gltf["asset"]["generator"].startswith("Ar3DRA Hub")
+    assert job.events[-1]["phase"] == "done" and job.events[-1].get("hi3d") is True
+    assert "geometry only" in job.events[-1]["message"]
+    record = json.loads(job.record_path.read_text(encoding="utf-8"))
+    assert record["stages"] == ["hi3d"] and record["hi3d"]["geometry_only"] is True
+    sidecar = json.loads(job.result_glb.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+    assert sidecar["operation"] == "hi3d-refine"
+    assert "Hi3D" in sidecar["license"]["name"]
+
+
+def test_a_hi3d_run_still_honours_cancel_after_the_refine(tmp_path, monkeypatch):
+    import finish_api
+    from Ar3DRAHub import hi3d_backend
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"hi3d": True})
+    job.image_path.parent.mkdir(parents=True, exist_ok=True)
+    job.image_path.write_bytes(b"png")
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+    refined = job.directory / "steps" / "source_hi3d.glb"
+    refined.parent.mkdir(parents=True, exist_ok=True)
+    refined.write_bytes(valid_glb(generator="the hi3d refine"))
+    job.cancel_requested = True
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d", lambda *a, **k: refined)
+    monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    finish_api.run_job(job, manager)
+    assert job.status == "cancelled"
+
+
+def test_a_hi3d_textured_run_falls_through_to_the_normal_worker(tmp_path, monkeypatch):
+    """Keep the texture: refine, transfer, then the ordinary Finish worker runs on the
+    refined mesh with its sidecar as the source record."""
+    import finish_api
+    from Ar3DRAHub import hi3d_backend
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"hi3d": True, "hi3d_texture": True})
+    job.image_path.parent.mkdir(parents=True, exist_ok=True)
+    job.image_path.write_bytes(b"png")
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+
+    refined = job.directory / "steps" / "source_hi3d.glb"
+    refined.parent.mkdir(parents=True, exist_ok=True)
+    refined.write_bytes(b"refined")
+    textured = job.directory / "steps" / "hi3d_textured.glb"
+    textured.write_bytes(valid_glb(generator="the hi3d refine"))
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d", lambda *a, **k: refined)
+    monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+
+    class Transfer:
+        pid = 2
+        returncode = 0
+        stdout = iter(["TRANSFER:: wrote textured.glb\n"])
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(finish_api.subprocess, "Popen", Transfer)
+    seen = {}
+
+    def fake_build(job_arg, settings, resume=False, source=None, source_record=None):
+        seen["source"] = source
+        seen["source_record"] = source_record
+        return ["worker"]
+
+    monkeypatch.setattr(finish_api, "build_command", fake_build)
+
+    class Worker:
+        pid = 3
+        returncode = 0
+        stdout = iter(["baking\n"])
+
+        def __init__(self, *args, **kwargs):
+            job.result_glb.parent.mkdir(parents=True, exist_ok=True)
+            job.result_glb.write_bytes(valid_glb(generator="the finish worker"))
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(finish_api.subprocess, "Popen", Worker)
+    finish_api.run_job(job, manager)
+    assert seen["source"] == textured
+    assert seen["source_record"] == textured.with_suffix(".provenance.json")
+    assert job.status == "done"
+    assert job.result_glb.name == "knight_20k.glb"          # the normal name, not _hi3d
+    assert job.events[-1]["phase"] == "done" and job.events[-1].get("hi3d") is not True
+    assert job.result_glb.is_file()
+
+
+def test_hi3d_transfer_command_runs_blender_headless(tmp_path, monkeypatch):
+    import finish_api
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"hi3d": True, "hi3d_texture": True})
+    exe = tmp_path / "blender"
+    exe.write_text("")
+    command = finish_api.hi3d_transfer_command(job, tmp_path / "refined.glb",
+                                               tmp_path / "textured.glb", blender=exe)
+    assert command[:6] == [str(exe), "--background", "--factory-startup", "--python-exit-code", "1", "--python"]
+    assert command[6].endswith("blender_hi3d_transfer.py")
+    assert command[8:11] == [str(job.asset_path), str(tmp_path / "refined.glb"),
+                             str(tmp_path / "textured.glb")]
+    assert command[11] == str(job.settings["atlas"])
+
+
+def test_hi3d_transfer_needs_blender(tmp_path, monkeypatch):
+    import finish_api
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"hi3d": True})
+    monkeypatch.setattr(finish_api.blender_lookup, "find_blender", lambda: None)
+    with pytest.raises(RuntimeError, match="Blender"):
+        finish_api.hi3d_transfer_command(job, tmp_path / "r.glb", tmp_path / "t.glb",
+                                         blender=None)
+
+
+def test_create_refuses_hi3d_without_the_picture_or_the_setup(tmp_path, monkeypatch):
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    with pytest.raises(ValueError, match="picture"):
+        manager.create("knight.glb", b"glb", None, {"hi3d": True})
+    monkeypatch.setattr(finish, "hi3d_readiness", lambda: (False, "not installed: test"))
+    manager2 = finish.FinishJobManager(tmp_path / "finish2", tmp_path / "none")
+    with pytest.raises(ValueError, match="not installed: test"):
+        manager2.create("knight.glb", b"glb", b"png", {"hi3d": True})
+
+
+def test_create_refuses_hi3d_with_hero(tmp_path, monkeypatch):
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    with pytest.raises(ValueError, match="do not combine"):
+        manager.create("knight.glb", b"glb", b"png", {"hi3d": True, "hero": True})
+
+
+def test_hi3d_readiness_says_why_when_the_checkout_or_weights_are_gone(tmp_path, monkeypatch):
+    import finish_api
+    from Ar3DRAHub import hi3d_backend
+
+    monkeypatch.setattr(hi3d_backend, "platform_refusal", lambda: None)
+    monkeypatch.setattr(hi3d_backend, "verify_paths",
+                        lambda repo: [f"missing venv python: {repo}/.venv"])
+    monkeypatch.setattr(finish_api, "HI3D_VENDOR", tmp_path)
+    ready, reason = finish_api.hi3d_readiness()
+    assert ready is False and "not installed" in reason
+    monkeypatch.setattr(hi3d_backend, "verify_paths", lambda repo: [])
+    monkeypatch.setattr(hi3d_backend, "model_dir_present",
+                        lambda: (False, tmp_path, ["model_index.json"]))
+    ready, reason = finish_api.hi3d_readiness()
+    assert ready is False and "weights are missing" in reason
+
+
 def test_a_hero_run_starts_from_the_asset_s_own_model(tmp_path):
     _pixal3d_run(tmp_path / "generated")
     run = tmp_path / "generated" / "seb" / "robot__pixal3d__1"
@@ -852,7 +1116,8 @@ def test_a_finished_run_says_and_keeps_whether_pixel_match_ran(tmp_path, monkeyp
         def poll(self):
             return 0
 
-    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    monkeypatch.setattr(finish_api, "build_command",
+                        lambda job, settings, resume=False, source=None, source_record=None: ["worker"])
     monkeypatch.setattr(finish_api.subprocess, "Popen", Worker)
     finish_api.run_job(job, finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out"))
     done = job.events[-1]
@@ -899,7 +1164,8 @@ def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp
             raise OSError("No space left on device")
         return original_write_text(self, *args, **kwargs)
 
-    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    monkeypatch.setattr(finish_api, "build_command",
+                        lambda job, settings, resume=False, source=None, source_record=None: ["worker"])
     monkeypatch.setattr(finish_api.subprocess, "Popen", Worker)
     monkeypatch.setattr(finish_api.processes, "terminate_group", fake_terminate_group)
     monkeypatch.setattr(Path, "write_text", fake_write_text)

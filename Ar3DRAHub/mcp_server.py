@@ -64,7 +64,9 @@ STUDIO_ONLY = {
     # `continue_asset`, which run the same steps through the server's plan runner
     "api/generate": "via create / continue_asset", "api/finish": "via create / continue_asset",
     "api/props": "via create / continue_asset", "api/image": "via create / continue_asset",
-    "api/image/back": "via create / continue_asset", "api/animate/rig": "via create / continue_asset",
+    "api/image/back": "via create / continue_asset",
+    "api/animate/rig": "via create / continue_asset",
+    "api/animate/rig-human": "a person places the joints by hand in the Steps panel",
     "api/animate/play": "via create / continue_asset", "api/motion": "via create / continue_asset",
     "api/motion/import": "via Create's 'A rig' source",
     "api/vat": "a niche export the user starts with Export VAT in the studio",
@@ -390,6 +392,36 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "step": "finished", "type": "bool", "default": False,
         "what": "Pixel Match flattens the baked normal map where it paints, since the photo carries its own shading there. Off by default: the full normal relief is kept.",
         "try_off_when": None},
+    "hi3d": {
+        "step": "finished", "type": "bool", "default": False,
+        "what": "Hi3D v1.0 rebuilds the model's geometry from the mesh and its reference picture before it is rigged: sharper folds, scales, teeth. NVIDIA only; the result is geometry only (no textures) and re-centred.",
+        "try_off_when": None},
+    "hi3d_resolution": {
+        "step": "finished", "type": "int", "choices": [512, 1024, 1536], "default": 512,
+        "what": "With hi3d: how many refinement passes. 512 is lightest; 1536 needs a very large GPU."},
+    "hi3d_texture": {
+        "step": "finished", "type": "bool", "default": False,
+        "what": "With hi3d: transfer the original texture onto the refined mesh, then Detail, Pixel Match and Marigold run as usual. Front details may drift slightly.",
+        "try_off_when": None},
+    "watertight": {
+        "step": "finished", "type": "bool", "default": False,
+        "what": "After Finish, rebuild the model as one closed solid: the hairline gaps are closed and every loose piece is merged into a single body, ready for a slicer, a Boolean or a physics engine. It resamples the surface, so details smaller than a voxel are smoothed away, and the extra model has no texture. The finished model is kept as it is beside it.",
+        "try_off_when": None},
+    "watertight_across": {
+        "step": "finished", "type": "int", "choices": [200, 300, 450, 700], "default": 300,
+        "what": "With watertight: how many voxels span the model's longest side. Higher keeps more detail and costs more time and memory on the CPU; 300 is a few minutes."},
+    "watertight_tool": {
+        "step": "finished", "type": "str", "choices": ["own", "external"], "default": "own",
+        "what": "With watertight: which engine rebuilds. 'own' is this repository's MIT module (CPU, a few minutes). 'external' runs an installed WTiVo instead -- much faster, because it runs on the GPU, and the sidecar records that a GPL tool was in the chain.",
+        "why_it_is_not_a_warning": "The result keeps the input's licence either way; this is a speed choice."},
+    "wativo": {
+        "step": "finished", "type": "bool", "default": False,
+        "what": "With watertight: use the GPU engine, if one is installed. Same thing as watertight_tool='external', offered as a checkbox because that is how the studio shows it.",
+        "try_off_when": None},
+    "wativo_res": {
+        "step": "finished", "type": "int", "choices": [512, 1536], "default": 512,
+        "what": "With wativo: the rebuild resolution. 512 is fast and a lighter file; 1536 is the tool's full detail and a much bigger file.",
+        "try_off_when": None},
     "texture_size": {
         "step": "finished", "type": "int", "choices": [1024, 2048, 4096], "default": 2048,
         "what": "Pixel size of the finished model's texture. Bigger is sharper and a bigger file."},
@@ -480,6 +512,19 @@ def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool
                             adv["marigold_normals"], adv["photo_fade_normals"])
     if adv["texture_size"] != ADVANCED["texture_size"]["default"]:
         finish["texture_size"] = adv["texture_size"]
+    if adv["hi3d"]:
+        finish["hi3d"] = True
+        finish["hi3d_resolution"] = adv["hi3d_resolution"]
+        if adv["hi3d_texture"]:
+            finish["hi3d_texture"] = True
+    if adv["watertight"]:
+        finish["watertight"] = True
+        finish["watertight_across"] = adv["watertight_across"]
+        # The checkbox and the setting are the same choice: the checkbox is how the studio
+        # shows it, so an agent asking for it must reach the same engine.
+        finish["watertight_tool"] = "external" if adv["wativo"] else adv["watertight_tool"]
+        if adv["wativo"]:
+            finish["watertight_wativo_res"] = adv["wativo_res"]
     move: dict[str, Any] = {}
     if adv["speed"]:
         move["speed"] = adv["speed"]

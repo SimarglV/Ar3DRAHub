@@ -1346,6 +1346,35 @@ def test_finish_offers_three_tested_detail_levels_and_warns_about_custom():
 
 
 @needs_node
+def test_finish_offers_hi3d_refine_only_when_the_machine_can_run_it():
+    out = _run("steps.js", """
+      const ctx = (hi3dReady) => ({ presets: [], engines: [], hi3dReady });
+      const asset = (picture) => ({ kind: 'character', picture, model: 'm/k.glb', finished: null, clips: [] });
+      const box = (html) => /data-k="hi3d"/.test(html);
+      console.log(JSON.stringify({
+        readyWithPicture: box(m.stepBody('finished', asset('i/k.png'), ctx(true))),
+        readyNoPicture: box(m.stepBody('finished', asset(null), ctx(true))),
+        notReady: box(m.stepBody('finished', asset('i/k.png'), ctx(false))),
+        resSelect: /data-k="hi3dres"/.test(m.stepBody('finished', asset('i/k.png'), ctx(true))),
+        texBox: /data-k="hi3dtex"/.test(m.stepBody('finished', asset('i/k.png'), ctx(true))),
+        hint: /rebuilds the geometry/i.test(m.stepBody('finished', asset('i/k.png'), ctx(true))),
+      }));""")
+    assert out == {"readyWithPicture": True, "readyNoPicture": False, "notReady": False,
+                   "resSelect": True, "texBox": True, "hint": True}
+
+
+@needs_node
+def test_finish_settings_carry_hi3d_through_the_chain():
+    out = _run("steps.js", """
+      const plan = m.chainPlan('finished', { kind: 'character', name: 'K', picture: 'i/k.png', model: 'm/k.glb' },
+        { hi3d: true, hi3dResolution: 1024, hi3dTexture: true, detail: {}, photo: true, marigold: false, marigoldNormals: false,
+          fadeNormals: false, edgeFade: true, nudge: true, texture: 2048 });
+      console.log(JSON.stringify({ hi3d: plan.finishSettings.hi3d, res: plan.finishSettings.hi3d_resolution,
+                                   tex: plan.finishSettings.hi3d_texture }));""")
+    assert out == {"hi3d": True, "res": 1024, "tex": True}
+
+
+@needs_node
 def test_an_agents_link_names_the_asset_to_open():
     out = _run("library.js", """console.log(JSON.stringify(
       ['#asset=03711bf99d31', 'asset=03711bf99d31', '#asset=../../x', '#asset=', '', null, '#other=1&asset=0123456789ab'].map(m.linkedAssetId)));""")
@@ -1518,7 +1547,10 @@ def test_steps_panel_runs_go_through_a_chain_so_a_reload_picks_them_up():
     assert out["finished"]["finishSettings"] == {"faces": 32000, "hero": True, "skip_photo": False,
                                                  "skip_edge_fade": False, "skip_nudge": True, "texture_size": 2048,
                                                  "marigold": False, "marigold_normals": False,
-                                                 "photo_fade_normals": False}
+                                                 "photo_fade_normals": False, "hi3d": False,
+                                                 "hi3d_resolution": 512, "hi3d_texture": False,
+                                                 "watertight": False, "watertight_across": 300,
+                                                 "watertight_tool": "own", "watertight_wativo_res": 512}
     assert out["model"]["steps"] == ["model"] and out["model"]["engine"] == "pixal3d"
     assert out["rigged"]["made"]["finished"] == "finish/k/k_40k.glb" and "model" not in out["rigged"]["made"]
     assert out["rawRig"]["made"]["model"] == "a/k.glb" and "finished" not in out["rawRig"]["made"]

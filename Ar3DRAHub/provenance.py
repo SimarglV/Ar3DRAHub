@@ -188,6 +188,29 @@ LICENSES = {
         ),
         models=("raven38/pixal3d-sv-q8_0-v1",),
     ),
+    # Hi3D v1.0's second-stage implementation and eight model artifacts are under the
+    # Hi3D Open License Agreement v1.0: commercial use is allowed, with a scale threshold
+    # and a branding obligation for integrations. Standalone outputs (a mesh that carries
+    # no Hi3D materials or derivatives) are explicitly free of those obligations. The
+    # conditioning encoders are separate: DINOv2-large (Apache-2.0) and CLIP (MIT).
+    "hi3d": LicenseProfile(
+        classification="commercial-conditional",
+        folder="conditional",
+        license_name="Hi3D Open License Agreement v1.0",
+        license_url="https://github.com/hi3d-official/Hi3Dv1.0/blob/main/LICENSE",
+        conditions=(
+            "Commercial use is permitted under the Hi3D Open License Agreement v1.0.",
+            "A related product or service above 200,000 monthly active users or "
+            "USD 1,000,000 monthly revenue requires notifying the Licensor and applying "
+            "for a separate written licence within 60 days.",
+            "Commercial integrations must display 'Powered by Hi3D 1.0' with a link to "
+            "the official website (hi3d.ai).",
+            "Standalone outputs containing no Hi3D Materials or Model Derivative do not "
+            "trigger the branding, notice or scale-licence obligations.",
+            "The DINOv2-large encoder is Apache-2.0 and CLIP ViT-L/14 is MIT.",
+        ),
+        models=("hi3d-official/Hi3Dv1.0",),
+    ),
     "qwen-image-2.1": LicenseProfile(
         # Qwen confirmed the outputs are the user's, and the model runs on their own machine;
         # the one condition left is the credit, so it sits with the other conditional models.
@@ -412,6 +435,78 @@ def hunyuan_paint_run_dir(outputs_root: Path, stem: str) -> Path:
     return Path(outputs_root) / f"{safe}-{os.getpid()}"
 
 
+# WTiVo (WatertightVoxel, SimarglV) is a fast, CUDA-based watertight rebuild. Its Python
+# and the package are MIT, but the native extension it ships (`cppmodules.*.pyd`) is built
+# on CGAL's 3D Delaunay triangulation, which is GPL-3.0-or-later -- confirmed by the mangled
+# `CGAL::Delaunay_triangulation_3` symbols in the binary, not by reading the README, which
+# lists CGAL only as a reference. So running it puts GPL code in the chain that produced
+# the file. That does not change the file's own licence -- the output is ours -- but it is
+# a fact about how the file was made, and the record says so rather than leaving a reader
+# to guess.
+WTIVO_COMPONENT = {
+    "component": "WTiVo (WatertightVoxel, SimarglV)",
+    "purpose": "external watertight rebuild (voxel resample + tetrahedral cell cut)",
+    "license": "MIT (Python) + GPL-3.0-or-later (native extension, via CGAL)",
+    "license_url": "https://github.com/SimarglV/WatertightVoxel-ComfyuiNode",
+    "commercial_status": "gpl-in-chain",
+    "copyleft": True,
+    "note": ("The tool runs as a separate process; no GPL code is linked into this "
+             "repository or shipped with the result. The record names it because the "
+             "chain that made the file includes it. Windows and an NVIDIA GPU only."),
+}
+
+
+def write_external_tool_sidecar(
+    source: Path,
+    output: Path,
+    *,
+    operation: str,
+    tool: dict[str, Any],
+    source_record: dict[str, Any] | None = None,
+    parameters: dict[str, Any] | None = None,
+) -> Path:
+    """A sidecar for a file made by running an outside program.
+
+    `write_derived_sidecar` is for our own instruments, and it merges their licences into
+    the output's licence name. An external tool is different: its licence is about *us
+    running it*, not about the file, so the output keeps the input's licence and class
+    exactly, and the tool is named under `external_tools` with its copyleft status.
+
+    The two are kept apart on purpose. Merging "GPL-3.0-or-later" into a licence name would
+    read as a licence on the output, which it is not -- but dropping it from the record
+    altogether would leave a reader unable to tell what made the file. Both are wrong; the
+    answer is a separate key that says what it is.
+    """
+    import copy
+
+    source, output = Path(source), Path(output)
+    source_record = source_record if source_record is not None else read_model_record(source)
+    origin = source_record or {}
+    unknown = {"name": "Unverified — source licence unavailable", "verified": False,
+               "conditions": ["Verify the source model's licence before use."]}
+    licence = copy.deepcopy(origin.get("license") or unknown)
+    classification = (origin.get("output") or {}).get("classification") or origin.get("classification") or "unverified"
+    if classification == "unverified":
+        licence = {**licence, "verified": False} if isinstance(licence, dict) else {"name": licence, "verified": False}
+    record = {
+        "schema_version": 1,
+        "operation": operation,
+        "input": {"path": str(source), "sha256": sha256_file(source)},
+        "output": {"path": str(output), "sha256": sha256_file(output), "classification": classification},
+        "model": copy.deepcopy(origin.get("model", {})),
+        # The input's licence, untouched: an external tool does not relicense its output.
+        "license": licence,
+        # What the source used, unchanged, plus nothing new -- the tool did not become part
+        # of the source's component list.
+        "components": [copy.deepcopy(c) for c in origin.get("components", [])],
+        # The one new fact: which outside program touched the file.
+        "external_tools": [copy.deepcopy(tool)],
+        "parameters": dict(parameters or {}),
+        "source_record": source_record,
+    }
+    return write_provenance(output.with_suffix(".provenance.json"), record, atomic=True)
+
+
 def _git_revision(repo: Path) -> str | None:
     try:
         return subprocess.run(
@@ -476,6 +571,7 @@ def finalize_output(
     source_manifest: Path | None,
     backend_repo: Path | None = None,
     model_identity: str | None = None,
+    coarse_mesh: Path | None = None,
 ) -> tuple[Path, Path]:
     run_id = uuid.uuid4().hex[:12]
     verified = model_identity is not None and model_identity in profile.models
@@ -516,6 +612,16 @@ def finalize_output(
             "path": str(image),
             "sha256": sha256_file(image),
             "source": "user-provided",
+            **(
+                {
+                    "coarse_mesh": {
+                        "path": str(coarse_mesh),
+                        "sha256": sha256_file(coarse_mesh),
+                    }
+                }
+                if coarse_mesh is not None
+                else {}
+            ),
         },
         "output": {
             "path": str(destination),
@@ -554,6 +660,36 @@ def finalize_output(
                 },
             ]
             if backend == "trellis2"
+            else []
+        )
+        + (
+            [
+                {
+                    "component": "facebook/dinov2-large",
+                    "purpose": "image conditioning",
+                    "license": "Apache-2.0",
+                    "commercial_status": "commercial-clear",
+                },
+                {
+                    "component": "openai/clip-vit-large-patch14",
+                    "purpose": "image conditioning",
+                    "license": "MIT",
+                    "commercial_status": "commercial-clear",
+                },
+                {
+                    "component": "coarse input mesh",
+                    "purpose": "geometry refined by Hi3D",
+                    "path": str(coarse_mesh),
+                    "source_record": read_model_record(coarse_mesh),
+                }
+                if coarse_mesh is not None
+                else {
+                    "component": "coarse input mesh",
+                    "purpose": "geometry refined by Hi3D",
+                    "license": "unrecorded — no sidecar found beside the coarse mesh",
+                },
+            ]
+            if backend == "hi3d"
             else []
         ),
         "software": {

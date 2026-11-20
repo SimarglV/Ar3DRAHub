@@ -385,6 +385,14 @@ def test_a_plan_carries_marigold_to_the_finish_job():
     assert aa.chain_from_form(form).finish_settings == {"keep_mesh": True, "marigold": True}
 
 
+def test_a_plan_carries_hi3d_and_its_resolution_to_the_finish_job():
+    """The exact bug this pins: hi3d was absent from FINISH_KEYS, so two Finish runs picked
+    at 512 and 1536 both ran the plain worker and came back identical."""
+    form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
+            "finish_settings": {"value": json.dumps({"hi3d": True, "hi3d_resolution": 1536})}}
+    assert aa.chain_from_form(form).finish_settings == {"hi3d": True, "hi3d_resolution": 1536}
+
+
 def test_a_plan_without_finish_choices_gets_finishs_defaults(tmp_path):
     chain = aa.chain_from_form({"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])}})
     assert chain.finish_settings == {}

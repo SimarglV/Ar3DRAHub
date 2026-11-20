@@ -349,7 +349,6 @@ class Predictor:
         import numpy as np
         import torch
         from PIL import Image
-        from diffusers import QwenImageEditPipeline
 
         with Image.open(image) as opened:
             rgb = np.asarray(opened.convert("RGB"), dtype=np.float32) / 255.0

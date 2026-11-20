@@ -16,6 +16,14 @@ extend-exclude = [
 ]
 
 [lint]
+# The rules are chosen here, not inherited from ruff's defaults, so a ruff upgrade
+# cannot turn CI red on its own. The set starts with what finds real defects:
+# E9 - syntax/IO errors that stop the file loading at all;
+# F  - pyflakes: an undefined name, an unused import, a redefinition.
+# Widen it one family at a time (B for bug-prone patterns, I for import order, UP for
+# modern syntax), fixing what it reports in the same change. Do not add a rule that
+# leaves the tree red.
+select = ["E9", "F"]
 ignore = [
     # A broad except is deliberate here: a setup check or a viewer handler reports any
     # failure rather than crashing, and each one says why next to it.

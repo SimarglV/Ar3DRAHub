@@ -257,6 +257,12 @@ def test_trellis_on_nvidia_runs_the_cuda_bootstrap_with_yes():
     assert command[-1] == "--yes"
 
 
+def test_hi3d_setup_runs_the_bootstrap_with_yes():
+    command = dl.command_for("hi3d", host=dl.NVIDIA)
+    assert command[1].endswith("bootstrap_hi3d.py")
+    assert command[-1] == "--yes"
+
+
 def test_trellis_on_a_mac_still_runs_the_metal_bootstrap(monkeypatch):
     """Nothing built yet: the button compiles the port. It does not pretend to download."""
     import backend_catalog

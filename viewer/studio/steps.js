@@ -53,13 +53,28 @@ export function stepBody(stepId, asset, ctx) {
   }
   if (stepId === 'finished') {
     const hero = heroCard(asset);
+    const hi3d = asset.picture && ctx.hi3dReady
+      ? '<label class="check"><input type="checkbox" data-k="hi3d"><span>Hi3D refine <span class="hint">rebuilds the geometry with Hi3D v1.0 — sharper folds, scales, teeth. NVIDIA only, a few minutes. Without “Keep the texture” the result keeps the refined mesh as it is (about a million triangles at 512 detail): Detail and Pixel Match are ignored.</span></span></label><label class="check" data-hi3d-tex hidden><input type="checkbox" data-k="hi3dtex"><span>Keep the texture <span class="hint">transfers the original texture onto the refined mesh, then Detail, Pixel Match and Marigold run as usual. Front details may drift slightly, because the mesh is re-aligned approximately.</span></span></label>'
+      : '';
+    // Watertight is offered on any model, not only a Hi3D one: the gaps come from the
+    // generator and from Detail cutting the surface up, so a plain Pixal3D finish gets
+    // them too.
+    const watertight = ctx.watertightReady
+      ? '<label class="check"><input type="checkbox" data-k="watertight"><span>Watertight <span class="hint">closes the hairline gaps and melts every loose piece into one closed body, ready for a slicer, a Boolean or a physics engine. It resamples the surface, so details smaller than a voxel are smoothed away, and the extra model has no texture — your finished model is kept as it is beside it. Costs a few minutes.</span></span></label>' + (ctx.wativoReady ? '<label class="check" data-watertight hidden><input type="checkbox" data-k="wativo"><span>Faster rebuild <span class="hint">uses WTiVo on your GPU instead — seconds rather than minutes. Pick its detail just below; your finished model is still kept as it is beside it.</span></span></label>' + '<label class="field" data-watertight hidden>WTiVo detail<select data-k="wativores"><option value="512" selected>512 · fast, lighter file</option><option value="1536">1536 · full detail, much bigger file</option></select></label>' : '')
+      : '';
+    const watertightNote = ctx.watertightReady === false && ctx.watertightNote
+      ? `<p class="hint">Watertight is unavailable: ${esc(ctx.watertightNote)}</p>`
+      : ctx.watertightReady && ctx.wativoReady === false && ctx.wativoNote
+        ? `<p class="hint">The faster watertight rebuild is unavailable: ${esc(ctx.wativoNote)}</p>` : '';
     const photo = asset.picture
       ? '<label class="check"><input type="checkbox" data-k="photo" checked><span>Pixel Match <span class="hint">keeps your picture\'s sharp details on the front</span></span></label><label class="check"><input type="checkbox" data-k="marigold"><span>Marigold <span class="hint">de-lights the front, straight from your picture</span></span></label><label class="check"><input type="checkbox" data-k="marigoldnormals"><span>Marigold normals <span class="hint">also bake surface normals from Marigold — off means de-light only</span></span></label>'
       : '<p class="hint">No picture on disk for this model, so Pixel Match is skipped: Finish cleans up the mesh and re-bakes its own texture.</p>';
     const skipped = !asset.finished && asset.rigged
       ? '<p class="hint">Skipped so far. Finishing now makes a new finished model; rig it again to use it.</p>' : '';
-    const controls = `${skipped}${finishDetail(asset)}${photo}
+    const controls = `${skipped}${finishDetail(asset)}${hi3d}${watertight}${watertightNote}${photo}
       <details class="adv"><summary>Advanced</summary>
+        ${asset.picture && ctx.hi3dReady ? '<label class="field" data-hi3d hidden>Hi3D detail<select data-k="hi3dres"><option value="512" selected>512 · one pass, lightest</option><option value="1024">1024 · two passes, more detail</option><option value="1536">1536 · three passes, heaviest (needs a very large GPU)</option></select></label>' : ''}
+        ${ctx.watertightReady ? '<label class="field" data-watertight hidden>Watertight detail<select data-k="wtacross"><option value="200">200 · coarser, quick</option><option value="300" selected>300 · balanced, a few minutes</option><option value="450">450 · sharper, several minutes</option><option value="700">700 · finest, slow and memory-hungry</option></select></label>' : ''}
         ${asset.picture ? '<label class="check"><input type="checkbox" data-k="edgefade" checked><span>Edge fade <span class="hint">Pixel Match fades out where one part sits in front of another, like an ear in front of a head. Turn it off if hair gets coloured specks or small eyes go dark, most often on Full detail.</span></span></label><label class="check"><input type="checkbox" data-k="nudge" checked><span>Nudge <span class="hint">Pixel Match first fits your picture onto the model. Turn it off if a feature shows up twice (a ghost eye) or slides off its place.</span></span></label><label class="check"><input type="checkbox" data-k="fadenormals"><span>Fade normals where painted <span class="hint">flatten the normal map where Pixel Match painted — off keeps the full relief</span></span></label>' : ''}
         <label class="field">Texture size<select data-k="texture"><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select></label>
       </details>
@@ -378,6 +393,47 @@ export function wireStep(card, stepId, asset, ctx) {
     card.querySelector('[data-full]').hidden = faces.value !== 'full';
     card.querySelector('[data-hero-hint]').hidden = faces.value !== 'hero';
   };
+  const hi3d = k('hi3d');
+  const hi3dTex = k('hi3dtex');
+  const syncHi3d = () => {
+    const refine = !!hi3d?.checked;
+    const textured = refine && !!hi3dTex?.checked;
+    card.querySelector('[data-hi3d]').hidden = !refine;
+    card.querySelector('[data-hi3d-tex]').hidden = !refine;
+    if (!refine && hi3dTex) hi3dTex.checked = false;
+    // Geometry-only refine: Detail, Pixel Match, Marigold and the texture size are
+    // ignored (no retopo worker runs), so they read as off rather than pretending.
+    const ignored = refine && !textured;
+    for (const key of ['faces', 'photo', 'marigold', 'marigoldnormals', 'edgefade', 'nudge', 'fadenormals', 'texture']) {
+      const el = k(key);
+      if (el) el.disabled = ignored;
+    }
+    if (refine) {
+      // The server refuses Hi3D + Hero together; grey the option out either way.
+      const hero = k('faces')?.querySelector('option[value="hero"]');
+      if (hero) hero.disabled = true;
+    }
+  };
+  if (hi3d) hi3d.onchange = syncHi3d;
+  if (hi3dTex) hi3dTex.onchange = syncHi3d;
+  const watertight = k('watertight');
+  const wativo = k('wativo');
+  const syncWatertight = () => {
+    const on = !!watertight?.checked;
+    const external = on && !!wativo?.checked;
+    for (const field of card.querySelectorAll('[data-watertight]')) field.hidden = !on;
+    // The two knobs are each engine's own business: the CPU voxel count hides while the
+    // GPU engine is on, and WTiVo's detail pick hides while it is off -- neither knob
+    // pretends to steer the engine that is not running.
+    const across = k('wtacross')?.closest('[data-watertight]');
+    if (across) across.hidden = !on || external;
+    const res = k('wativores')?.closest('[data-watertight]');
+    if (res) res.hidden = !external;
+    if (wativo) wativo.disabled = !on;
+  };
+  if (watertight) watertight.onchange = syncWatertight;
+  if (wativo) wativo.onchange = syncWatertight;
+  syncWatertight();
   if (engine) engine.onchange = () => { card.querySelector('[data-k="licence"]').textContent = ctx.engines.find((e) => e.id === engine.value)?.license || ''; };
   const bindFile = card.querySelector('[data-bindfile]');
   const bindDrop = card.querySelector('[data-binddrop]');
@@ -394,6 +450,11 @@ export function wireStep(card, stepId, asset, ctx) {
     const settings = {
       backend: engine?.value || ctx.engines[0]?.id,
       detail: finishDetailSettings(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, marigold: !!k('marigold')?.checked, marigoldNormals: !!k('marigoldnormals')?.checked, fadeNormals: !!k('fadenormals')?.checked, edgeFade: k('edgefade')?.checked !== false, nudge: k('nudge')?.checked !== false, texture: Number(k('texture')?.value),
+      hi3d: !!hi3d?.checked, hi3dResolution: Number(k('hi3dres')?.value || 512),
+      hi3dTexture: !!hi3dTex?.checked,
+      watertight: !!watertight?.checked, watertightAcross: Number(k('wtacross')?.value || 300),
+      watertightTool: wativo?.checked ? 'external' : 'own',
+      wativoRes: Number(k('wativores')?.value || 512),
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0), inPlace: !!placed?.checked,
       rigSource: k('rigsource')?.value || 'finished',
@@ -414,7 +475,7 @@ export function wireStep(card, stepId, asset, ctx) {
     if (plan && ctx.startChain) { ctx.startChain(plan); return; }
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
-        : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, marigold: !!settings.marigold, marigold_normals: !!settings.marigoldNormals, photo_fade_normals: !!settings.fadeNormals, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture })),
+        : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, marigold: !!settings.marigold, marigold_normals: !!settings.marigoldNormals, photo_fade_normals: !!settings.fadeNormals, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture, hi3d: !!settings.hi3d, hi3d_resolution: settings.hi3dResolution, hi3d_texture: !!settings.hi3dTexture, watertight: !!settings.watertight, watertight_across: settings.watertightAcross, watertight_tool: settings.watertightTool, watertight_wativo_res: settings.wativoRes })),
       rigged: () => startRig(asset, settings.rigSource),
       bind: () => startBind(card.querySelector('[data-bindfile]')?.files[0]),
       animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread, settings.inPlace),
@@ -447,7 +508,10 @@ export function chainPlan(stepId, asset, settings) {
     if (!asset.model || !asset.picture) return null;   // the chain's Finish needs both; the card handles the rest
     return { ...base, steps: ['finished'], made: { picture: asset.picture, model: asset.model },
       finishSettings: { ...settings.detail, skip_photo: !settings.photo, marigold: !!settings.marigold, marigold_normals: !!settings.marigoldNormals, photo_fade_normals: !!settings.fadeNormals, skip_edge_fade: !settings.edgeFade,
-        skip_nudge: !settings.nudge, texture_size: settings.texture } };
+        skip_nudge: !settings.nudge, texture_size: settings.texture, hi3d: !!settings.hi3d, hi3d_resolution: settings.hi3dResolution || 512, hi3d_texture: !!settings.hi3dTexture,
+        watertight: !!settings.watertight, watertight_across: settings.watertightAcross || 300,
+        watertight_tool: settings.watertightTool === 'external' ? 'external' : 'own',
+        watertight_wativo_res: settings.wativoRes || 512 } };
   }
   if (stepId === 'rigged') {
     const source = (settings.rigSource === 'model' ? asset.model : null) || asset.finished || asset.model;

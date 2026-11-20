@@ -18,6 +18,7 @@ _MANIFEST_CHOICES = {
     "pipeline_type": ("512", "1024", "1024_cascade"),
     "texture_size": (512, 1024, 2048),
     "material_mode": ("matte", "pbr"),
+    "resolution": (512, 1024, 1536),
 }
 
 
@@ -38,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mode.add_argument(
         "--trellis", action="store_true", help="Run TRELLIS.2 through the Mac port"
+    )
+    mode.add_argument(
+        "--hi3d",
+        action="store_true",
+        help="Refine a coarse mesh's geometry with Hi3D v1.0 (needs --coarse-mesh)",
     )
     parser.add_argument("--output-dir", type=Path, default=Path("output"))
     parser.add_argument(
@@ -134,6 +140,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeout", type=float, default=3600, help="Job timeout in seconds"
     )
     quality.add_argument("--poll-interval", type=float, default=2)
+
+    hi3d = parser.add_argument_group("Hi3D options")
+    hi3d.add_argument(
+        "--coarse-mesh",
+        type=Path,
+        help="The coarse GLB Hi3D refines (required with --hi3d)",
+    )
+    hi3d.add_argument("--hi3d-repo", type=Path, default=Path("vendor/hi3d"))
+    hi3d.add_argument("--resolution", choices=(512, 1024, 1536), type=int, default=512)
+    hi3d.add_argument("--hi3d-steps", type=int, default=25)
+    hi3d.add_argument("--hi3d-seed", type=int, default=0)
+    hi3d.add_argument(
+        "--no-hi3d-offload",
+        dest="hi3d_offload",
+        action="store_false",
+        help="Load the whole pipeline on the GPU (default: sequential CPU offload)",
+    )
     return parser
 
 
@@ -171,6 +194,8 @@ def _resolve_model_identity(args: argparse.Namespace) -> str | None:
         return args.model
     if args.trellis:
         return "microsoft/TRELLIS.2-4B"
+    if getattr(args, "hi3d", False):
+        return "hi3d-official/Hi3Dv1.0"
     if args.quality:
         if args.workflow is None:
             return None
@@ -201,7 +226,8 @@ def main(argv: list[str] | None = None) -> int:
             args.fast = backend == "sf3d"
             args.quality = backend == "hunyuan-comfyui"
             args.trellis = backend == "trellis2"
-            if not (args.fast or args.quality or args.trellis):
+            args.hi3d = backend == "hi3d"
+            if not (args.fast or args.quality or args.trellis or args.hi3d):
                 raise ValueError(f"backend {backend!r} is not implemented yet")
             parameters = model.get("parameters", {})
             for key, allowed in _MANIFEST_CHOICES.items():
@@ -236,6 +262,13 @@ def main(argv: list[str] | None = None) -> int:
                 args.trellis_remesh = bool(parameters["trellis_remesh"])
             if "trellis_remesh_project" in parameters:
                 args.trellis_remesh_project = float(parameters["trellis_remesh_project"])
+            if "coarse_mesh" in manifest_input:
+                args.coarse_mesh = source_manifest.parent / manifest_input["coarse_mesh"]
+            for key in ("resolution", "hi3d_steps", "hi3d_seed"):
+                if key in parameters:
+                    setattr(args, key, parameters[key])
+            if "hi3d_offload" in parameters:
+                args.hi3d_offload = bool(parameters["hi3d_offload"])
             if "workflow" in manifest_data:
                 workflow = manifest_data["workflow"]
                 if not isinstance(workflow, str) or not workflow:
@@ -247,11 +280,19 @@ def main(argv: list[str] | None = None) -> int:
         except (KeyError, TypeError, ValueError) as exc:
             print(f"error: invalid run manifest: {exc}", file=sys.stderr)
             return 2
-    elif args.image is None or sum((args.fast, args.quality, args.trellis)) != 1:
+    elif args.image is None or sum((args.fast, args.quality, args.trellis, args.hi3d)) != 1:
         print(
             "error: provide --run-manifest, or IMAGE with exactly one mode",
             file=sys.stderr,
         )
+        return 2
+
+    if args.hi3d and args.coarse_mesh is None:
+        print("error: --hi3d requires --coarse-mesh", file=sys.stderr)
+        return 2
+    coarse_mesh = args.coarse_mesh.expanduser().resolve() if args.coarse_mesh else None
+    if coarse_mesh is not None and not coarse_mesh.is_file():
+        print(f"error: coarse mesh does not exist: {coarse_mesh}", file=sys.stderr)
         return 2
 
     manifest_views = manifest_data is not None and "views" in manifest_data["input"]
@@ -277,7 +318,8 @@ def main(argv: list[str] | None = None) -> int:
         if manifest_data
         else False,
     }
-    backend = "sf3d" if args.fast else "trellis2" if args.trellis else "hunyuan-comfyui"
+    backend = ("sf3d" if args.fast else "trellis2" if args.trellis
+               else "hi3d" if args.hi3d else "hunyuan-comfyui")
     policy = manifest_data.get("license_policy", {}) if manifest_data else {}
     try:
         model_identity = _resolve_model_identity(args)
@@ -353,6 +395,21 @@ def main(argv: list[str] | None = None) -> int:
             trellis_texture_backend = trellis_result.texture_backend
             trellis_material_normalized = trellis_result.material_normalized
             trellis_material_mode = trellis_result.material_mode
+        elif args.hi3d:
+            from .hi3d_backend import Hi3DOptions, generate_hi3d
+
+            result = generate_hi3d(
+                image,
+                coarse_mesh,
+                working_output_dir,
+                Hi3DOptions(
+                    repo=args.hi3d_repo,
+                    resolution=args.resolution,
+                    steps=args.hi3d_steps,
+                    seed=args.hi3d_seed,
+                    cpu_offload=args.hi3d_offload,
+                ),
+            )
         else:
             if args.workflow is None:
                 raise ValueError(
@@ -392,6 +449,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "steps": args.steps if args.trellis else None,
         "pre_simplify_cap": args.trellis_pre_simplify_cap if args.trellis else None,
+        "resolution": args.resolution if args.hi3d else None,
+        "hi3d_steps": args.hi3d_steps if args.hi3d else None,
+        "hi3d_seed": args.hi3d_seed if args.hi3d else None,
+        "hi3d_offload": args.hi3d_offload if args.hi3d else None,
+        "coarse_mesh": str(coarse_mesh) if args.hi3d else None,
     }
     result, sidecar = finalize_output(
         generated=result,
@@ -403,9 +465,13 @@ def main(argv: list[str] | None = None) -> int:
         parameters=parameters,
         source_manifest=source_manifest,
         backend_repo=(
-            args.sf3d_repo if args.fast else args.trellis_repo if args.trellis else None
+            args.sf3d_repo if args.fast
+            else args.trellis_repo if args.trellis
+            else args.hi3d_repo if args.hi3d
+            else None
         ),
         model_identity=model_identity,
+        coarse_mesh=coarse_mesh if args.hi3d else None,
     )
     print(result)
     print(sidecar)

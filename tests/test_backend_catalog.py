@@ -566,6 +566,22 @@ def test_trellis_uses_a_separate_rocm_checkout_from_the_cuda_one():
     assert "trellis-rocm" in str(trellis.build_probes_by_host[bc.AMD][0])
 
 
+def test_hi3d_is_an_nvidia_tool_card_with_its_three_downloads():
+    hi3d = bc.BY_ID["hi3d"]
+    assert hi3d.kind == "tool" and hi3d.runs_on == (bc.NVIDIA,)
+    assert hi3d.install == "scripts/bootstrap_hi3d.py"
+    assert sum(w.bytes_expected for w in hi3d.weights) == pytest.approx(10.0 * bc.GB, rel=0.1)
+    sources = {w.source for w in hi3d.weights}
+    assert sources == {"hi3d-official/Hi3Dv1.0", "facebook/dinov2-large",
+                       "openai/clip-vit-large-patch14"}
+    assert any("Powered by Hi3D" in hi3d.caveat for caveat in [hi3d.caveat])
+
+
+def test_hi3d_surfaces_its_commercial_scale_threshold():
+    caveat = bc.BY_ID["hi3d"].caveat
+    assert caveat is not None and "200,000" in caveat and "Powered by Hi3D" in caveat
+
+
 @pytest.mark.parametrize("backend_id", ["hunyuan-cuda"])
 def test_an_amd_user_is_told_why_not_and_what_to_use_instead(backend_id):
     """"Needs an NVIDIA GPU" is true of an AMD machine and explains nothing: it reads as a

@@ -9,7 +9,6 @@ Docstrings have been added, as well as DDIM sampling and a new collection of bet
 import enum
 import math
 import numpy as np
-import torch
 import torch as th
 from copy import deepcopy
 from unimate.models.diffusion.nn import mean_flat, sum_flat

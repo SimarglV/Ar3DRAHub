@@ -72,6 +72,10 @@ COMMANDS: dict[str, list[str]] = {
     "autorig": [sys.executable, str(REPO / "scripts" / "bootstrap_autorig.py"), "--yes"],
     "front-back": [sys.executable, str(REPO / "scripts" / "bootstrap_front_back.py"), "--yes"],
     "marigold-v2": [sys.executable, str(REPO / "scripts" / "bootstrap_marigold_v2.py"), "--yes"],
+    # Its own 3.12 venv with a pinned torch, so the installer must not run on the studio's
+    # interpreter -- the script makes the environment itself with uv.
+    "wativo": [sys.executable, str(REPO / "scripts" / "bootstrap_wativo.py"), "--yes"],
+    "hi3d": [sys.executable, str(REPO / "scripts" / "bootstrap_hi3d.py"), "--yes"],
     # NVIDIA-only: Tencent's own Hunyuan3D-2.1, built for CUDA. The catalogue marks it
     # unsupported everywhere else, so start() refuses before this runs on a Mac.
     "hunyuan-cuda": [sys.executable, str(REPO / "scripts" / "bootstrap_hunyuan_cuda.py"),

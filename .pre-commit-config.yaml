@@ -20,6 +20,9 @@ repos:
       - id: detect-private-key
       - id: check-added-large-files
         args: ["--maxkb=3072"]
+        # Promo art and the example meshes are deliberately larger than the cap;
+        # it exists to stop new heavy files, not to evict the ones we ship on purpose.
+        exclude: ^assets/
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.13.7
     hooks:

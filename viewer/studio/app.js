@@ -71,6 +71,9 @@ let engines = [], presets = [], motionPrompts = [], motionReady = null, motionNo
 let libraryReady = false;
 let libraryLoadToken = 0;
 let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
+let hi3dReady = null;     // null: unknown — the server's /api/finish/capabilities decides
+let watertightReady = null, watertightNote = null;   // same: the script and its packages, checked by the server
+let wativoReady = null, wativoNote = null;   // the external engine: a WTiVo checkout plus a Python that has torch
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let createHandle = null;
 let libraryInputId = null;
@@ -160,7 +163,7 @@ function summaries(asset) {
   const out = {
     picture: asset.picture ? 'Done' : 'No picture kept (model uploaded or older run)',
     model: asset.model ? engineOf(asset.model) : asset.finished ? 'Made outside the app' : '',
-    finished: asset.kind === 'prop set' ? `${asset.props.length} props cut out, each with detail levels` : faces ? `${faces.replace('k', ',000')} triangles` : /_full\.glb$/.test(fileName(asset.finished)) ? 'Full detail · every triangle, for renders' : /_hero\.glb$/.test(fileName(asset.finished)) ? 'Hero · sharper face, built on its own' : 'Done',
+    finished: asset.kind === 'prop set' ? `${asset.props.length} props cut out, each with detail levels` : faces ? `${faces.replace('k', ',000')} triangles` : /_full\.glb$/.test(fileName(asset.finished)) ? 'Full detail · every triangle, for renders' : /_hero\.glb$/.test(fileName(asset.finished)) ? 'Hero · sharper face, built on its own' : /_hi3d\.glb$/.test(fileName(asset.finished)) ? 'Hi3D refined · geometry only, no textures' : 'Done',
     rigged: 'Auto-rig',
     animated: asset.clips.map((c) => c.name.replace(/_/g, ' ')).join(', '),
   };
@@ -423,6 +426,11 @@ const ctx = {
   get motionReady() { return motionReady; },
   get motionNote() { return motionNote; },
   get blenderReady() { return blenderReady; },
+  get hi3dReady() { return hi3dReady; },
+  get watertightReady() { return watertightReady; },
+  get watertightNote() { return watertightNote; },
+  get wativoReady() { return wativoReady; },
+  get wativoNote() { return wativoNote; },
   get frontBack() { return frontBack; },
   get pictureEngines() { return pictureEngines; },
   url: (relative) => url(relative),
@@ -642,6 +650,11 @@ async function loadTools() {
     fetch('/api/motion/prompts').then((r) => r.json()).catch(() => null),
   ]);
   blenderReady = finishCaps ? !!finishCaps.ready : true;   // unknown: let the server say
+  hi3dReady = finishCaps ? !!finishCaps.hi3d : null;       // null: unknown, let the server say
+  watertightReady = finishCaps ? !!finishCaps.watertight : null;
+  watertightNote = finishCaps?.watertight_note || null;
+  wativoReady = finishCaps ? !!finishCaps.wativo : null;
+  wativoNote = finishCaps?.wativo_note || null;
   engines = readyEngines(catalog);
   frontBack = catalog?.front_back || null;
   pictureEngines = catalog?.picture_engines || [];

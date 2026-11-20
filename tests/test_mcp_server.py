@@ -526,8 +526,10 @@ def test_list_assets_rows_say_their_family_and_version(studio):
 def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
     assert set(out["advanced"]) == {"edge_fade", "nudge", "marigold", "marigold_normals", "photo_fade_normals",
-                                    "texture_size", "rig_from", "speed", "arms_away",
-                                    "in_place", "keep_everything"}
+                                    "hi3d", "hi3d_resolution", "hi3d_texture", "watertight", "watertight_across",
+                                    "watertight_tool", "wativo", "wativo_res",
+                                    "texture_size", "rig_from", "speed",
+                                    "arms_away", "in_place", "keep_everything"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
 
@@ -543,7 +545,10 @@ def test_every_studio_control_has_an_mcp_twin():
             "speed": "speed", "spread": "arms_away", "keep": "keep_everything", "inplace": "in_place",
             "picengine": "picture_engine", "change": "back_change",
             "motiontext": "motion_prompt", "mreps": "motion_repetitions",
-            "mcfg": "motion_cfg_scale", "mloop": "motion_loop"}
+            "mcfg": "motion_cfg_scale", "mloop": "motion_loop",
+            "hi3d": "hi3d", "hi3dres": "hi3d_resolution", "hi3dtex": "hi3d_texture",
+            "watertight": "watertight", "wtacross": "watertight_across", "wttool": "watertight_tool",
+            "wativo": "wativo", "wativores": "wativo_res"}
     missing = sorted(controls - set(twin))
     assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."
     known = set(ms.ADVANCED) | set(ms.options()["main"]) | {"description"}

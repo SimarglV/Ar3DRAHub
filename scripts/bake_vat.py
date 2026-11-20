@@ -23,7 +23,6 @@ import math
 import os
 
 import bpy
-from mathutils import Vector
 
 
 def next_pow2(n):

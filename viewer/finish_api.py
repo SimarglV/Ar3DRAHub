@@ -33,7 +33,7 @@ import usage_api
 
 from Ar3DRAHub import blender as blender_lookup
 from Ar3DRAHub import processes
-from Ar3DRAHub.host import APPLE, host_platform, venv_python
+from Ar3DRAHub.host import APPLE, NVIDIA, host_platform, venv_python
 
 OUTPUT_ROOT = REPO / "output" / "finish"
 # Where generation runs (and their records) live, for matching an uploaded model to the run
@@ -42,6 +42,22 @@ GENERATED_ROOT = REPO / "output"
 WORKER = REPO / "scripts" / "retopo_repaint.py"
 # The optional Marigold de-light + normal-map pass, run on the finished model afterwards.
 MARIGOLD_FINISH = REPO / "scripts" / "marigold_finish.py"
+# The optional Hi3D geometry refinement: replaces the retopo worker entirely and produces
+# a geometry-only GLB (no textures, re-centred to unit radius). NVIDIA only.
+HI3D_VENDOR = REPO / "vendor" / "hi3d"
+HI3D_RESOLUTIONS = (512, 1024, 1536)
+# The optional watertight rebuild: closes hairline gaps and merges every shell into one
+# closed body. Runs on the CPU in both environments, so there is no platform gate -- only
+# a time and memory cost that `across` sets.
+WATERTIGHT_WORKER = REPO / "scripts" / "watertight.py"
+WATERTIGHT_ACROSS = (64, 700)
+# The external engine, when a machine has one. WTiVo lives in `vendor/wativo/` with its own
+# `.venv`, the way marigold-v2 does: its native extension is built for CPython 3.12 and its
+# torch pin is 2.8.0, neither of which the studio's 3.11 environment can host. Both folders
+# are git-ignored -- the checkout is someone else's repo, cloned by the bootstrap script.
+WTIVO_VENDOR = REPO / "vendor" / "wativo"
+WTIVO_ENV_HOME = ("WTIVO_HOME", "WTIVO_DIR")
+WTIVO_ENV_PYTHON = "WTIVO_PYTHON"
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 # The exact shape `create` builds — a resume takes its directory name from a URL, so
 # the name is matched against the generator rather than merely sanitised.
@@ -51,6 +67,9 @@ TERMINAL = {"done", "error", "cancelled"}
 ARTIFACTS = {
     "result.glb": ("result_glb", "model/gltf-binary"),
     "record.json": ("record_path", "application/json"),
+    # The watertight rebuild, when the run asked for one. Beside the result rather than
+    # replacing it: it has no UVs, so it is a different deliverable, not a better one.
+    "watertight.glb": ("watertight_glb", "model/gltf-binary"),
 }
 
 # Bounds, not preferences. Everything here reaches a subprocess argument, so each value is
@@ -70,6 +89,8 @@ SETTING_BOUNDS: dict[str, tuple[float, float]] = {
     "paint_steps": (1, 50),
     "paint_tex": (1024, 4096),
     "texture_size": (256, 4096),
+    "hi3d_resolution": (512, 1536),
+    "watertight_across": WATERTIGHT_ACROSS,
 }
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -80,13 +101,27 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "skip_photo": False, "keep_mesh": False, "skip_edge_fade": False, "skip_nudge": False,
     "high_detail": False, "hero": False, "marigold": False,
     "marigold_normals": False, "photo_fade_normals": False,
+    "hi3d": False, "hi3d_resolution": 512, "hi3d_texture": False,
+    "watertight": False, "watertight_across": 300, "watertight_tool": "own",
+    "watertight_wativo_res": 512,
 }
 
 BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge",
-                 "high_detail", "hero", "marigold", "marigold_normals", "photo_fade_normals"}
+                 "high_detail", "hero", "marigold", "marigold_normals", "photo_fade_normals", "hi3d", "hi3d_texture",
+                 "watertight"}
+
+# Each string setting maps to the values it accepts, so a new enum validates against its
+# own list instead of someone else's.
+WATERTIGHT_TOOLS = ("own", "external")
+STRING_SETTINGS = {"watertight_tool": WATERTIGHT_TOOLS}
+# The external engine's two measured quality points, chosen on the "Faster rebuild"
+# checkbox: 512 is fast and a lighter file, 1536 is the tool's full detail.
+WATERTIGHT_TOOL_RES = (512, 1536)
+CHOICE_SETTINGS = {"watertight_wativo_res": WATERTIGHT_TOOL_RES}
 
 INTEGER_SETTINGS = {
     "faces", "atlas", "paint_seed", "paint_res", "paint_steps", "paint_tex", "texture_size",
+    "hi3d_resolution", "watertight_across",
 }
 
 # Which artifact proves a stage already ran, for `--resume` and for describing a run that
@@ -142,6 +177,24 @@ def normalise_settings(raw: dict[str, Any]) -> dict[str, Any]:
         if key in BOOL_SETTINGS:
             settings[key] = bool(value)
             continue
+        if key in STRING_SETTINGS:
+            allowed = STRING_SETTINGS[key]
+            if value not in allowed:
+                raise ValueError(f"{key} must be one of {', '.join(allowed)}, got {value!r}")
+            settings[key] = value
+            continue
+        if key in CHOICE_SETTINGS:
+            allowed = CHOICE_SETTINGS[key]
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                raise ValueError(f"{key} must be one of {', '.join(map(str, allowed))}, "
+                                 f"got {value!r}") from None
+            if number not in allowed:
+                raise ValueError(f"{key} must be one of {', '.join(map(str, allowed))}, "
+                                 f"got {number}")
+            settings[key] = number
+            continue
         try:
             number = float(value)
         except (TypeError, ValueError):
@@ -153,6 +206,11 @@ def normalise_settings(raw: dict[str, Any]) -> dict[str, Any]:
     if settings["keep_mesh"]:
         # full detail: nothing is simplified, so there is nothing to repaint or bake onto
         settings.update(skip_paint=True, skip_bake=True)
+    if settings["hi3d"] and settings["hi3d_resolution"] not in HI3D_RESOLUTIONS:
+        raise ValueError(
+            f"hi3d_resolution must be one of {', '.join(map(str, HI3D_RESOLUTIONS))}, "
+            f"got {settings['hi3d_resolution']}"
+        )
     return settings
 
 
@@ -167,6 +225,9 @@ def capabilities(platform: str | None = None, find=blender_lookup.find_blender,
     repaint = (platform or host_platform()) == APPLE
     found = find()
     found_version = version(found) if found else None
+    hi3d, hi3d_reason = hi3d_readiness()
+    watertight, watertight_reason = watertight_readiness()
+    wativo, wativo_reason = wativo_readiness()
     return {
         "repaint": repaint,
         "repaint_note": None if repaint else REPAINT_NOTE,
@@ -177,13 +238,25 @@ def capabilities(platform: str | None = None, find=blender_lookup.find_blender,
         "ready": found is not None,
         # Setup's Blender card offers Install Blender (scripts/bootstrap_blender.py).
         "blender_installable": found is None and installable(),
+        "watertight": watertight,
+        "watertight_note": None if watertight else watertight_reason,
+        "wativo": wativo,
+        "wativo_note": None if wativo else wativo_reason,
+        "hi3d": hi3d,
+        "hi3d_note": None if hi3d else hi3d_reason,
     }
 
 
 def fit_to_machine(settings: dict[str, Any], platform: str | None = None) -> dict[str, Any]:
-    """Settings this machine can actually run: no repaint off Apple Silicon (it is MLX)."""
-    if (platform or host_platform()) != APPLE:
-        return {**settings, "skip_paint": True}
+    """Settings this machine can actually run: no repaint off Apple Silicon (it is MLX),
+    and no Hi3D refine off NVIDIA (there is no CPU path and no Metal backend)."""
+    platform = platform or host_platform()
+    if platform != APPLE:
+        settings = {**settings, "skip_paint": True}
+    if platform != NVIDIA:
+        settings = {**settings, "hi3d": False, "hi3d_texture": False}
+    if settings.get("hi3d_texture") and not settings.get("hi3d"):
+        settings = {**settings, "hi3d_texture": False}
     return settings
 
 
@@ -201,15 +274,22 @@ def worker_module():
 
 def build_command(
     job: FinishJob, settings: dict[str, Any], *, resume: bool = False,
+    source: Path | None = None, source_record: Path | None = None,
 ) -> list[str]:
-    """The worker invocation. Flags, not positions — the worker owns its own ordering."""
+    """The worker invocation. Flags, not positions — the worker owns its own ordering.
+
+    `source` overrides the mesh the worker finishes: a Hi3D-textured run hands it the
+    refined mesh (with the refined sidecar as `source_record`) instead of the upload.
+    """
+    source = source or job.asset_path
     command = [
         sys.executable, "-u", str(WORKER),
-        str(job.asset_path), str(job.image_path), str(job.result_glb),
+        str(source), str(job.image_path), str(job.result_glb),
         *(["--steps-dir", str(job.steps_dir)] if job.steps_dir is not None else []),
         *(["--views", str(job.views_dir)] if uses_photo(job, settings) else []),
         *(["--native-dump", str(job.dump_path)]
-          if job.dump_path.is_file() and not settings.get("keep_mesh") else []),
+          if job.dump_path.is_file() and not settings.get("keep_mesh")
+          and source == job.asset_path else []),
         "--faces", str(settings["faces"]),
         "--atlas", str(settings["atlas"]),
         "--angle", str(settings["angle"]),
@@ -223,7 +303,7 @@ def build_command(
         "--paint-tex", str(settings["paint_tex"]),
         "--texture-size", str(settings["texture_size"]),
     ]
-    record = job.asset_path.parent / "source.json"
+    record = source_record or (job.asset_path.parent / "source.json")
     if record.is_file():
         command += ["--source-record", str(record)]
     if settings["skip_paint"]:
@@ -268,6 +348,358 @@ def marigold_ready(job: FinishJob) -> bool:
             and (job.views_dir / "view_000.png").is_file())
 
 
+def find_wativo_home(explicit: str | Path | None = None) -> Path | None:
+    """A WTiVo checkout, or None.
+
+    `vendor/wativo` first -- that is where the bootstrap puts it, and where the studio
+    expects to find it on a machine that ran the install. Then an explicit path, then
+    `$WTIVO_HOME` / `$WTIVO_DIR`, so a developer can point at their own working copy
+    without moving it into the repo. Only a checkout with its `wtivo.py` counts: the
+    `inprocess.py` a checkout also ships is the ComfyUI bridge, not something this studio
+    can run.
+    """
+    if explicit:
+        candidate = Path(explicit).expanduser()
+        if (candidate / "wtivo.py").is_file():
+            return candidate
+        if candidate.is_file():                       # gave the script itself
+            return candidate.parent
+        return None
+    if (WTIVO_VENDOR / "wtivo.py").is_file():
+        return WTIVO_VENDOR
+    for name in WTIVO_ENV_HOME:
+        value = os.environ.get(name)
+        if value:
+            candidate = Path(value).expanduser()
+            if (candidate / "wtivo.py").is_file():
+                return candidate
+            if candidate.is_file() and candidate.name == "wtivo.py":
+                return candidate.parent
+    return None
+
+
+def find_wativo_python(home: Path) -> Path | None:
+    """An interpreter that can import WTiVo's native extension.
+
+    `$WTIVO_PYTHON` first -- an explicit choice wins over a guess -- then the vendored
+    `.venv`, then any Python dropped beside the checkout. The extension is built for
+    CPython 3.12 and pins torch 2.8.0, so the studio's own 3.11 is never a fallback: it is
+    a different error message. Whether the found interpreter can really load the extension
+    is what `wativo_readiness` probes.
+    """
+    explicit = os.environ.get(WTIVO_ENV_PYTHON)
+    if explicit:
+        candidate = Path(explicit).expanduser()
+        if candidate.is_file():
+            return candidate
+    for relative in (".venv/Scripts/python.exe", ".venv/bin/python",
+                     "venv/Scripts/python.exe", "venv/bin/python", "python.exe"):
+        candidate = home / relative
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def wativo_readiness() -> tuple[bool, str | None]:
+    """Whether the WTiVo engine can run here, or why not.
+
+    Checked before a run starts, for the same reason Hi3D is: a missing interpreter should
+    be a sentence on the card, not an exit code a minute in. The probe is the real thing,
+    not a version print: it imports `cppmodules` through the found interpreter, with the
+    checkout's `build/` on both the module and the DLL search path, because that import is
+    exactly what a run needs and exactly what breaks on a wrong torch or a wrong Python.
+    """
+    home = find_wativo_home()
+    if home is None:
+        return False, ("WTiVo is not installed. Install it from Setup (the WTiVo card) or "
+                       "run python scripts/bootstrap_wativo.py, or set WTIVO_HOME to a "
+                       "checkout.")
+    python = find_wativo_python(home)
+    if python is None:
+        return False, (f"no Python for WTiVo in {home.name}: it needs CPython 3.12 with "
+                       "torch. Set WTIVO_PYTHON to that interpreter.")
+    probe = (
+        "import os, sys, torch\n"
+        "build = os.path.join({root!r}, 'build')\n"
+        "sys.path.insert(0, build)\n"
+        "add = getattr(os, 'add_dll_directory', None)\n"
+        "add(build) if add else None\n"
+        "import cppmodules\n"
+    ).format(root=str(home))
+    completed = subprocess.run([str(python), "-c", probe],
+                               capture_output=True, text=True, timeout=120)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip().splitlines()
+        return False, (f"{python.name} cannot load WTiVo's native extension: "
+                       f"{detail[-1] if detail else 'unknown'}. It needs CPython 3.12 "
+                       "with torch 2.8.0.")
+    return True, None
+
+
+def watertight_readiness() -> tuple[bool, str | None]:
+    """Whether the watertight rebuild can run here, or why not.
+
+    It runs on the CPU and needs nothing beyond what the studio already imports, so the
+    only real question is whether the script is there. Checked anyway, for the same reason
+    Hi3D is: a missing worker should be a sentence on the card, not an exit code a minute
+    into a run.
+    """
+    if not WATERTIGHT_WORKER.is_file():
+        return False, f"the watertight script is missing: {WATERTIGHT_WORKER.name} in scripts/"
+    try:
+        import numpy  # noqa: F401  -- a fresh install without it fails here, not mid-run
+        import scipy  # noqa: F401
+        import trimesh  # noqa: F401
+        from skimage import measure  # noqa: F401
+    except ImportError as exc:
+        return False, f"the watertight rebuild needs a package that is missing: {exc.name}"
+    return True, None
+
+
+def hi3d_readiness() -> tuple[bool, str | None]:
+    """Whether the Hi3D refine stage can run here, or why not.
+
+    Files only, no imports: the platform check, the checkout, and the materialised
+    model folder. Checked before a run starts, because a Hi3D refusal mid-run would
+    come after the picture upload and an expensive, doomed job.
+    """
+    from Ar3DRAHub import hi3d_backend
+
+    refusal = hi3d_backend.platform_refusal()
+    if refusal is not None:
+        return False, refusal
+    problems = hi3d_backend.verify_paths(HI3D_VENDOR)
+    if problems:
+        return False, ("Hi3D v1.0 is not installed. Set it up on Setup & Status "
+                       "(scripts/bootstrap_hi3d.py, about 10 GB).")
+    present, _, missing = hi3d_backend.model_dir_present()
+    if not present:
+        return False, ("Hi3D v1.0 weights are missing: "
+                       f"{', '.join(missing)}. Set them up on Setup & Status.")
+    return True, None
+
+
+def run_hi3d(job: FinishJob) -> None:
+    """The Hi3D refine stage: replaces the retopo worker and produces geometry-only GLBs.
+
+    The refine conditions on the reference picture, so a run must have one. The result
+    carries a derived sidecar chaining the source's licence with Hi3D's, so the chain
+    survives the textureless GLB Hi3D exports.
+    """
+    refined = refine_stage(job, "Hi3D: refining the geometry at {resolution} "
+                                 "(geometry only — no textures)")
+    from Ar3DRAHub.provenance import set_glb_generator
+
+    job.result_glb.parent.mkdir(parents=True, exist_ok=True)
+    refined.replace(job.result_glb)
+    set_glb_generator(job.result_glb)
+    write_hi3d_sidecar(job, job.asset_path, job.result_glb)
+    job.append_log(f"hi3d refine done -> {job.result_glb.name}")
+    record = {
+        "source": str(job.asset_path),
+        "image": str(job.image_path),
+        "output": str(job.result_glb),
+        "stages": ["hi3d"],
+        "hi3d": {
+            "resolution": int(job.settings.get("hi3d_resolution", 512)),
+            "geometry_only": True,
+        },
+        "size_bytes": job.result_glb.stat().st_size,
+    }
+    job.record_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    try:
+        (job.directory / PIXEL_MATCH_NAME).write_text(json.dumps({"pixel_match": "off"}),
+                                                      encoding="utf-8")
+    except OSError:
+        pass
+
+
+def refine_stage(job: FinishJob, message_template: str) -> Path:
+    """Run the Hi3D refine itself and return the refined GLB (in the steps dir).
+
+    Does not touch the result or the records: the caller decides whether this is the
+    whole run (geometry-only) or the first half of a textured finish.
+    """
+    from Ar3DRAHub import hi3d_backend
+
+    ready, reason = hi3d_readiness()
+    if not ready:
+        raise RuntimeError(reason or "Hi3D refine is not available here")
+    if not job.image_path.is_file():
+        raise RuntimeError("Hi3D refine needs the reference picture; none was uploaded")
+    resolution = int(job.settings.get("hi3d_resolution", 512))
+    job.emit({"phase": "hi3d", "overall_pct": 0,
+              "message": message_template.format(resolution=resolution)})
+    return hi3d_backend.generate_hi3d(
+        image=job.image_path,
+        coarse_mesh=job.asset_path,
+        output_dir=(job.steps_dir or job.directory),
+        options=hi3d_backend.Hi3DOptions(
+            repo=HI3D_VENDOR, resolution=resolution, cpu_offload=True,
+        ),
+        log=job.append_log,
+    )
+
+
+def write_hi3d_sidecar(job: FinishJob, source: Path, output: Path) -> None:
+    """The refined mesh's licence chain: the source's record plus Hi3D's terms."""
+    from Ar3DRAHub.provenance import LICENSES, write_derived_sidecar
+
+    profile = LICENSES["hi3d"]
+    source_record = None
+    record_file = job.input_dir / "source.json"
+    if record_file.is_file():
+        source_record = json.loads(record_file.read_text(encoding="utf-8"))
+    write_derived_sidecar(
+        source, output, operation="hi3d-refine",
+        source_record=source_record,
+        component_records=[{
+            "component": "hi3d-official/Hi3Dv1.0",
+            "purpose": "geometry refinement",
+            "license": {"name": profile.license_name, "url": profile.license_url,
+                        "conditions": list(profile.conditions)},
+            "commercial_status": "commercial-conditional",
+        }],
+    )
+
+
+def hi3d_transfer_command(job: FinishJob, refined: Path, textured: Path,
+                          blender: Path | None = None) -> list[str]:
+    """The headless Blender invocation that bakes the source's texture onto the refined mesh."""
+    blender = blender or blender_lookup.find_blender()
+    if blender is None:
+        raise RuntimeError(blender_lookup.missing_help())
+    return [
+        str(blender), "--background", "--factory-startup", "--python-exit-code", "1",
+        "--python", str(REPO / "scripts" / "blender_hi3d_transfer.py"), "--",
+        str(job.asset_path), str(refined), str(textured),
+        str(job.settings["atlas"]), str(job.settings["metallic"]),
+        str(job.settings["roughness"]), str(job.settings["ior"]),
+    ]
+
+
+def run_hi3d_textured(job: FinishJob) -> tuple[Path, Path]:
+    """Hi3D refine + texture transfer. Returns (worker source, source record).
+
+    The refined mesh is baked with the source's base colour and aligned back into the
+    source's frame, so the normal Finish worker (Detail, Pixel Match, Marigold, compress)
+    can run on it. The worker's source record is the refined mesh's sidecar, so the
+    final record chains the original licence with Hi3D's.
+    """
+    refined = refine_stage(
+        job, "Hi3D: refining the geometry at {resolution}, then transferring the texture")
+    steps = job.steps_dir or job.directory
+    textured = steps / "hi3d_textured.glb"
+    job.emit({"phase": "hi3d-transfer", "overall_pct": 0,
+              "message": "Transferring the original texture onto the refined geometry"})
+    job.process = subprocess.Popen(
+        hi3d_transfer_command(job, refined, textured), cwd=str(REPO),
+        env=processes.child_env(),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1,
+        **processes.TEXT_PIPE, **processes.group_popen_kwargs(),
+    )
+    assert job.process.stdout is not None
+    for raw in job.process.stdout:
+        line = raw.rstrip("\n")
+        if line:
+            job.append_log(line)
+    code = job.process.wait()
+    job.process = None
+    if code != 0 or not textured.is_file():
+        raise RuntimeError("the texture transfer failed; the refined mesh was not kept")
+    write_hi3d_sidecar(job, job.asset_path, textured)
+    return textured, textured.with_suffix(".provenance.json")
+
+
+def watertight_command(source: Path, output: Path, across: int, tool: str = "own",
+                       wativo_res: int = 512) -> list[str]:
+    """The watertight rebuild as a subprocess, on the studio's own interpreter.
+
+    Not a Blender invocation and not a separate venv: `scripts/watertight.py` imports only
+    numpy, scipy, trimesh and scikit-image, all of which the studio already has.
+
+    `tool` picks the engine: `own` is the MIT module, `external` is an installed WTiVo
+    checkout, run on the interpreter its extension was built for, at `wativo_res` (512
+    fast / 1536 detail). The choice is about speed, so the interface calls them "this
+    machine" and "fast" -- the licence consequence lives in the sidecar, not in a
+    checkbox label.
+    """
+    command = [sys.executable, "-u", str(WATERTIGHT_WORKER), str(source), str(output),
+               "--across", str(int(across))]
+    if tool == "external":
+        home = find_wativo_home()
+        if home is None:
+            raise RuntimeError("WTiVo is not installed; install it from Setup or set "
+                               "WTIVO_HOME to a checkout")
+        # `wtivo.py` is a module, not an executable: run it with the interpreter that can
+        # import its native extension. That is a different interpreter from ours on
+        # purpose -- ours is 3.11 and the extension is built for 3.12.
+        script = home / "wtivo.py"
+        python = find_wativo_python(home) if script.is_file() else home / "wativo"
+        command += ["--tool", "wativo", "--wativo-res", str(int(wativo_res))] + (
+            ["--wativo-python", str(python), "--wativo-script", str(script)]
+            if script.is_file() else ["--wativo", str(python)])
+    return command
+
+
+def run_watertight(job: FinishJob, source: Path) -> Path:
+    """Rebuild `source` watertight, in the run's steps directory, and return it.
+
+    Runs last, on whatever the rest of the pipeline produced: a shell that has been through
+    Detail, Pixel Match and the bake has been cut up and re-welded, which is exactly where
+    hairline gaps reappear. Doing it earlier would mean the later stages had to work on a
+    mesh whose UVs are gone.
+
+    The rebuild drops UVs, so this is offered as a separate result rather than folded into
+    the finished model: `watertight.glb` keeps the geometry and nothing else.
+    """
+    ready, reason = watertight_readiness()
+    if not ready:
+        raise RuntimeError(reason or "the watertight rebuild is not available here")
+    steps = job.steps_dir or job.directory
+    target = steps / "watertight.glb"
+    across = int(job.settings.get("watertight_across", 300))
+    tool = "external" if job.settings.get("watertight_tool") == "external" else "own"
+    if tool == "external":
+        # The card promised a GPU engine, so the run checks the promise it made, not just
+        # whether a folder exists: a wrong-torch venv fails the extension import, and the
+        # error belongs before the run starts, next to every other refusal.
+        ready, reason = wativo_readiness()
+        if not ready:
+            raise RuntimeError(reason or "the WTiVo engine is not available here")
+        wativo_res = int(job.settings.get("watertight_wativo_res", 512))
+        message = (f"Rebuilding watertight with WTiVo at {wativo_res} — this closes the "
+                   "hairline gaps and merges every piece, and drops the texture")
+    else:
+        wativo_res = 512
+        message = (f"Rebuilding watertight at {across} voxels across — this closes the "
+                   "hairline gaps and merges every piece, and drops the texture")
+    job.emit({"phase": "watertight", "overall_pct": 0, "message": message})
+    job.process = subprocess.Popen(
+        watertight_command(source, target, across, tool, wativo_res), cwd=str(REPO),
+        env=processes.child_env(),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1,
+        **processes.TEXT_PIPE, **processes.group_popen_kwargs(),
+    )
+    assert job.process.stdout is not None
+    for raw in job.process.stdout:
+        line = raw.rstrip("\n")
+        if line:
+            job.append_log(line)
+    code = job.process.wait()
+    job.process = None
+    if job.cancel_requested:
+        raise RuntimeError("watertight rebuild cancelled")
+    if code != 0 or not target.is_file():
+        raise RuntimeError("the watertight rebuild failed; the finished model was kept as it was")
+    # The script writes its own sidecar when it can find the input's record. Copy it to
+    # where the studio looks for a result's provenance, so the Library shows the chain.
+    sidecar = target.with_suffix(".provenance.json")
+    if sidecar.is_file():
+        shutil.copy(sidecar, target.with_suffix(".retopo-repaint.json"))
+    return target
+
+
 def marigold_command(job: FinishJob) -> list[str]:
     """Run the Marigold de-light (+ optional normal bake) on the finished model, in place."""
     command = [sys.executable, "-u", str(MARIGOLD_FINISH), str(job.result_glb),
@@ -309,7 +741,10 @@ def run_marigold(job: FinishJob) -> tuple[bool, str | None]:
 
 def needed_inputs(job: FinishJob, settings: dict[str, Any]) -> list[Path]:
     """The input files a run cannot do without. The picture only feeds Pixel Match and the
-    repaint, so a run with both off (one started without a picture) needs only the model."""
+    repaint, so a run with both off (one started without a picture) needs only the model.
+    Hi3D refine conditions on the picture, so it is required there."""
+    if settings.get("hi3d"):
+        return [job.asset_path, job.image_path]
     if settings.get("skip_photo", False) and settings.get("skip_paint", True):
         return [job.asset_path]
     return [job.asset_path, job.image_path]
@@ -554,15 +989,17 @@ def faces_label(faces: int) -> str:
     return f"{faces / 1000:g}k"
 
 
-def final_name(directory_name: str, faces: int, full: bool = False, hero: bool = False) -> str:
+def final_name(directory_name: str, faces: int, full: bool = False, hero: bool = False,
+               hi3d: bool = False) -> str:
     """The finished model's file name: the asset, then its face count (`vanguard_5k.glb`),
-    `_full` for a full-detail finish that kept every triangle, or `_hero` for one whose head
-    was built again on its own (scripts/hero_route.py).
+    `_full` for a full-detail finish that kept every triangle, `_hero` for one whose head
+    was built again on its own (scripts/hero_route.py), or `_hi3d` for a geometry-only
+    Hi3D refinement.
 
     The asset is the run folder's name up to its first `__`, which drops the generator
     and timestamp tags a generated file carries (`vanguard__pixal3d` -> `vanguard`).
     """
-    tag = "hero" if hero else "full" if full else faces_label(faces)
+    tag = ("hi3d" if hi3d else "hero" if hero else "full" if full else faces_label(faces))
     return f"{directory_name.split('__')[0]}_{tag}.glb"
 
 
@@ -607,13 +1044,25 @@ class FinishJob:
     def result_glb(self) -> Path:
         if self.legacy:
             return self.directory / "result.glb"
+        # A Hi3D-textured run ends in the normal worker, so it takes the normal name
+        # (a face count); only the geometry-only run carries the `_hi3d` tag.
+        hi3d_only = bool(self.settings.get("hi3d")) and not self.settings.get("hi3d_texture")
         return self.directory / final_name(self.directory.name, int(self.settings["faces"]),
                                            bool(self.settings.get("keep_mesh")),
-                                           bool(self.settings.get("hero")))
+                                           bool(self.settings.get("hero")), hi3d_only)
 
     @property
     def record_path(self) -> Path:
         return self.result_glb.with_suffix(".retopo-repaint.json")
+
+    @property
+    def watertight_glb(self) -> Path:
+        """The optional watertight rebuild, beside the result in `steps/`.
+
+        A property rather than a field so `ARTIFACTS` can name it before the run has
+        decided whether to make one; the file simply is not there when it did not.
+        """
+        return (self.steps_dir or self.directory) / "watertight.glb"
 
     def stage_artifact(self, key: str | None) -> Path:
         """The file that proves a stage ran (see STAGE_ARTIFACTS)."""
@@ -660,14 +1109,28 @@ class FinishJobManager:
             directory.mkdir(parents=True, exist_ok=False)
             job = FinishJob(uuid.uuid4().hex, directory)
             try:
-                job.settings = fit_to_machine(normalise_settings(settings))
+                job.settings = normalise_settings(settings)
+                if job.settings.get("hi3d_texture") and not job.settings.get("hi3d"):
+                    raise ValueError("Keeping the texture needs Hi3D refine turned on.")
+                job.settings = fit_to_machine(job.settings)
                 if image is None:
                     job.settings.update(skip_photo=True, skip_paint=True)
+                hero = bool(job.settings.get("hero"))
+                hi3d = bool(job.settings.get("hi3d"))
+                # Checked before any file is written: a Hi3D refusal after the upload and
+                # the run directory would be an expensive way to say "set it up".
+                if hi3d and hero:
+                    raise ValueError("Hi3D refine and Hero face do not combine: pick one.")
+                if hi3d and image is None:
+                    raise ValueError("Hi3D refine needs the picture the model was made from.")
+                if hi3d:
+                    ready, reason = hi3d_readiness()
+                    if not ready:
+                        raise ValueError(reason or "Hi3D refine is not available here")
                 job.input_dir.mkdir(parents=True, exist_ok=True)
                 job.asset_path.write_bytes(asset)
                 if image is not None:
                     job.image_path.write_bytes(image)
-                hero = bool(job.settings.get("hero"))
                 if hero and image is None:
                     raise ValueError("Hero needs the picture the model was made from.")
                 # The saved camera + views feed Pixel Match AND Marigold, so a Marigold-only
@@ -744,6 +1207,40 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         return
     try:
         job.status = "running"
+        worker_source = None
+        worker_record = None
+        if job.settings.get("hi3d"):
+            if job.settings.get("hi3d_texture"):
+                worker_source, worker_record = run_hi3d_textured(job)
+            else:
+                run_hi3d(job)
+            if job.cancel_requested:
+                job.status = "cancelled"
+                job.emit({"phase": "error", "message": "Finishing cancelled"})
+                manager.finish(job)
+                return
+            if worker_source is None:
+                job.emit({
+                    "phase": "done", "overall_pct": 100,
+                    "message": (f"Hi3D refined at {job.result_glb.stat().st_size / 1048576:.1f} MB · "
+                                "geometry only — no textures"),
+                    "pixel_match": "off",
+                    "result_url": f"/api/finish/{job.id}/result.glb",
+                    "record_url": f"/api/finish/{job.id}/record.json",
+                    "size_bytes": job.result_glb.stat().st_size,
+                    "directory": job.directory.name,
+                    "path": library_path(job.result_glb),
+                    "source_url": served_url(job.asset_path),
+                    "pixal3d": (job.views_dir / "transforms.json").is_file(),
+                    "hi3d": True,
+                })
+                job.status = "done"
+                usage_api.count_done("finish")   # nothing if the person turned sharing off
+                manager.finish(job)
+                return
+            # Texture kept: fall through to the normal worker, which finishes the
+            # refined mesh (Detail, Pixel Match, Marigold, compress) as usual.
+            job.append_log("hi3d refine done; finishing the textured mesh")
         hero = bool(job.settings.get("hero"))
         stages = list(HERO_STAGES) if hero else worker_module().stage_plan(
             job.settings["skip_paint"], job.settings["skip_compress"],
@@ -764,7 +1261,9 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         job.emit({"phase": "queued", "overall_pct": 0, "stages": stages, "message": message})
         progress = FinishProgress(stages)
         job.process = subprocess.Popen(
-            hero_command(job, job.settings) if hero else build_command(job, job.settings, resume=job.resume),
+            hero_command(job, job.settings) if hero else build_command(
+                job, job.settings, resume=job.resume,
+                source=worker_source, source_record=worker_record),
             cwd=str(REPO),
             env=processes.child_env(),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
@@ -799,6 +1298,15 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 if provenance.is_file():
                     shutil.copy(provenance, job.record_path)   # what record_url serves
             marigold_ran, marigold_note = run_marigold(job)
+            watertight_target, watertight_error = None, None
+            if job.settings.get("watertight"):
+                # Last, and allowed to fail without losing the finish: the finished model is
+                # the deliverable, the watertight rebuild is an extra one beside it.
+                try:
+                    watertight_target = run_watertight(job, job.result_glb)
+                except RuntimeError as exc:
+                    watertight_error = str(exc)
+                    job.append_log(f"watertight: {watertight_error}")
             pixel_match = pixel_match_result(photo_ran, job.views_dir, job.settings)
             try:
                 (job.directory / PIXEL_MATCH_NAME).write_text(json.dumps({"pixel_match": pixel_match}),
@@ -821,6 +1329,13 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 "pixal3d": (job.views_dir / "transforms.json").is_file(),
                 "marigold": marigold_ran,
                 "marigold_note": marigold_note,
+                "watertight": (watertight_target is not None
+                               or bool(job.settings.get("watertight"))),
+                "watertight_path": (library_path(watertight_target)
+                                    if watertight_target is not None else None),
+                "watertight_url": (f"/api/finish/{job.id}/watertight.glb"
+                                   if watertight_target is not None else None),
+                "watertight_error": watertight_error,
                 "note": photo_note(job, job.settings),
             })
             job.status = "done"

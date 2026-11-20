@@ -141,6 +141,30 @@ def test_validate_run_policy_accepts_canonical_sf3d_identity():
     assert profile is LICENSES["sf3d"]
 
 
+def test_hi3d_is_conditional_and_names_its_terms():
+    profile = LICENSES["hi3d"]
+    assert profile.classification == "commercial-conditional"
+    assert profile.models == ("hi3d-official/Hi3Dv1.0",)
+    joined = " ".join(profile.conditions)
+    assert "200,000" in joined and "Powered by Hi3D" in joined
+    assert "standalone" in joined.lower()
+
+
+def test_hi3d_identity_is_reviewed():
+    profile = validate_run_policy(
+        "hi3d", "showcase", "private", True, model_identity="hi3d-official/Hi3Dv1.0"
+    )
+    assert profile is LICENSES["hi3d"]
+
+
+def test_hi3d_refuses_commercial_intent():
+    with pytest.raises(ValueError, match="commercial_intent"):
+        validate_run_policy(
+            "hi3d", "game", "private", True,
+            model_identity="hi3d-official/Hi3Dv1.0", commercial_intent=True,
+        )
+
+
 def test_validate_run_policy_rejects_unknown_identity():
     with pytest.raises(ValueError, match="someone/unknown-repo"):
         validate_run_policy(

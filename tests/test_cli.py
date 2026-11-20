@@ -67,6 +67,11 @@ def test_resolve_model_identity_for_trellis_is_canonical():
     assert _resolve_model_identity(args) == "microsoft/TRELLIS.2-4B"
 
 
+def test_resolve_model_identity_for_hi3d_is_canonical():
+    args = Namespace(fast=False, trellis=False, quality=False, hi3d=True)
+    assert _resolve_model_identity(args) == "hi3d-official/Hi3Dv1.0"
+
+
 def test_resolve_model_identity_for_quality_reads_workflow(tmp_path):
     workflow = {
         "1": {
@@ -239,3 +244,67 @@ def test_primary_image_precedes_additional_views(tmp_path, monkeypatch, manifest
     assert len(sidecars) == 1 and sidecars[0].name.startswith("front__")
     record = json.loads(sidecars[0].read_text())
     assert record["input"]["path"] == str(pictures[0])
+
+
+def test_hi3d_requires_a_coarse_mesh(tmp_path, capsys):
+    image = tmp_path / "in.png"
+    image.write_bytes(b"png")
+    assert main([str(image), "--hi3d"]) == 2
+    assert "--coarse-mesh" in capsys.readouterr().err
+
+
+def test_hi3d_refuses_a_missing_coarse_mesh(tmp_path, capsys):
+    image = tmp_path / "in.png"
+    image.write_bytes(b"png")
+    result = main([str(image), "--hi3d", "--coarse-mesh", str(tmp_path / "gone.glb")])
+    assert result == 2
+    assert "coarse mesh does not exist" in capsys.readouterr().err
+
+
+def test_hi3d_manifest_runs_and_records_the_coarse_mesh(tmp_path, monkeypatch):
+    from Ar3DRAHub.hi3d_backend import Hi3DOptions
+
+    image = tmp_path / "in.png"
+    image.write_bytes(b"png")
+    coarse = tmp_path / "coarse.glb"
+    coarse.write_bytes(b"glb")
+    manifest = tmp_path / "run.json"
+    manifest.write_text(json.dumps({
+        "schema_version": 1,
+        "use_case": "showcase",
+        "distribution": "private",
+        "commercial_intent": False,
+        "input": {"path": "in.png", "coarse_mesh": "coarse.glb"},
+        "model": {
+            "backend": "hi3d",
+            "parameters": {"resolution": 1024, "hi3d_steps": 12, "hi3d_seed": 7},
+        },
+        "license_policy": {"allow_conditional": True},
+        "output": {"directory": str(tmp_path / "out")},
+    }))
+
+    seen = {}
+
+    def generate(image_arg, coarse_arg, working, options):
+        seen["coarse"] = Path(coarse_arg)
+        seen["options"] = options
+        asset = Path(working) / "mesh.glb"
+        asset.write_bytes(valid_glb(generator="the hi3d backend"))
+        return asset
+
+    monkeypatch.setattr("Ar3DRAHub.hi3d_backend.generate_hi3d", generate)
+    assert main(["--run-manifest", str(manifest)]) == 0
+    assert seen["coarse"] == coarse.resolve()
+    assert seen["options"] == Hi3DOptions(
+        repo=Path("vendor/hi3d"), resolution=1024, steps=12, seed=7, cpu_offload=True
+    )
+    sidecars = list((tmp_path / "out").rglob("*.provenance.json"))
+    assert len(sidecars) == 1
+    record = json.loads(sidecars[0].read_text())
+    assert record["output"]["classification"] == "commercial-conditional"
+    assert record["input"]["coarse_mesh"]["path"] == str(coarse.resolve())
+    assert record["license"]["name"] == "Hi3D Open License Agreement v1.0"
+    components = " ".join(json.dumps(c) for c in record["components"])
+    assert "dinov2-large" in components
+    assert "clip-vit-large-patch14" in components
+    assert "coarse input mesh" in components

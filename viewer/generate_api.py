@@ -208,7 +208,6 @@ from motion_api import (
     status_payload as motion_status_payload,
 )
 
-import vat_api
 from vat_api import (
     VAT_JOBS,
     cancel_job as cancel_vat_job,
@@ -223,7 +222,6 @@ import rig_import_api
 from rig_import_api import (
     RIG_IMPORT_JOBS,
     cancel_job as cancel_rig_import_job,
-    installed as rig_import_installed,
     missing_note as rig_import_missing_note,
     run_job as run_rig_import_job,
     status_payload as rig_import_status_payload,
@@ -4358,7 +4356,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(422, {"error": "no analysed rig at that directory"})
                 return
             try:
-                source = Path(json.loads((outdir / ".source.json").read_text())["input"])
+                source = Path(json.loads(
+                    (outdir / ".source.json").read_text(encoding="utf-8"))["input"])
             except (OSError, ValueError, KeyError):
                 self._send_json(422, {"error": "the analysed rig lost its source file"})
                 return

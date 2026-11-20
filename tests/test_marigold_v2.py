@@ -8,8 +8,6 @@ before it spends minutes loading the backbone.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from Ar3DRAHub import marigold_v2 as m

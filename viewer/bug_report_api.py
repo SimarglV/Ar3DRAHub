@@ -32,7 +32,6 @@ def scrub(text: str, home: str) -> str:
 
 def copy_text(message: str, details: str, home: str | None = None) -> str:
     """The scrubbed message and details, ready to paste anywhere."""
-    import os
     home = str(Path.home()) if home is None else home
     message, details = scrub(message, home), scrub(details, home)
     return f"{message.strip()}\n\n{details}".strip()
