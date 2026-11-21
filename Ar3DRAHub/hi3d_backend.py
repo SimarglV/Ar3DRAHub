@@ -24,7 +24,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,21 @@ class Hi3DOptions:
     steps: int = 25
     seed: int = 0
     cpu_offload: bool = True
+
+
+@dataclass(frozen=True)
+class Hi3DResult:
+    """The refined GLB and the rung that produced it.
+
+    `resolution` can be lower than the request: the 1536 rung reliably loses large
+    parts of the subject on this repo's Windows SDPA port (measured ~63% of the
+    input's surface rebuilt, against ~96% at 1024 and ~100% at 512).
+    `generate_hi3d` measures that and steps down, so the record and the log say
+    what the mesh actually is, not what was asked for.
+    """
+
+    path: Path
+    resolution: int
 
 
 #: The three model repos the official loader consumes, with approximate sizes.
@@ -58,6 +73,97 @@ REQUIRED_FILES = (
     "transformer_1024/config.json",
     "transformer_1024/model.safetensors",
 )
+
+#: How far a refined point may sit from the input surface, as a share of the model's
+#: unit radius. Hi3D re-centres and scales its output, so both meshes are measured in
+#: that frame; three percent is generous enough for the detail refinement adds, and
+#: far wider than the distance between refined vertices.
+COVERAGE_TOLERANCE = 0.03
+#: Share of the input surface that must have refined geometry near it. Measured on the
+#: teen character: 512 scored 1.000, 1024 ~0.96 (after the attention-port fix in
+#: scripts/patch_hi3d_sdpa.py) and 1536 ~0.63. The gap is the missing slabs, not detail,
+#: so the gate sits between a clean rung and a broken one with room for inputs that
+#: legitimately move a little.
+COVERAGE_THRESHOLD = 0.93
+#: 30k area-weighted samples see a missing slab and still cost a fraction of a second.
+COVERAGE_SAMPLES = 30_000
+
+
+class RefineQualityError(RuntimeError):
+    """The refined mesh is missing parts of the mesh it was refining."""
+
+
+def _unit_frame(vertices):
+    """Vertices centred on their mean and scaled to unit maximum radius, as Hi3D exports."""
+    import numpy as np
+
+    values = np.asarray(vertices, dtype=np.float64)
+    centred = values - values.mean(axis=0, keepdims=True)
+    radius = float(np.linalg.norm(centred, axis=1).max())
+    if not np.isfinite(radius) or radius <= 0.0:
+        raise RefineQualityError("a mesh has zero extent; there is nothing to compare")
+    return centred / radius
+
+
+def _sample_surface(vertices, faces, count: int, seed: int = 0):
+    """`count` points spread over the triangles by area, deterministically.
+
+    Area weighting matters: the parts a refinement drops are often the big, flat
+    ones -- a chest, a cape -- and sampling face-by-face would under-represent them.
+    """
+    import numpy as np
+
+    tri = vertices[faces]
+    areas = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]),
+                           axis=1) * 0.5
+    total = float(areas.sum())
+    if total <= 0.0:
+        raise RefineQualityError("a mesh has no surface area; there is nothing to compare")
+    rng = np.random.default_rng(seed)
+    picks = rng.random(count) * total
+    indices = np.clip(np.searchsorted(np.cumsum(areas), picks), 0, len(tri) - 1)
+    r1, r2 = rng.random(count), rng.random(count)
+    root = np.sqrt(r1)
+    weights = np.stack([1.0 - root, root * (1.0 - r2), root * r2], axis=1)
+    return (tri[indices] * weights[:, :, None]).sum(axis=1)
+
+
+def surface_coverage(coarse_mesh: Path, refined: Path, *,
+                     tolerance: float = COVERAGE_TOLERANCE,
+                     samples: int = COVERAGE_SAMPLES) -> float:
+    """How much of `coarse_mesh`'s surface has `refined` geometry near it, 0..1.
+
+    The failure this catches is not a seam or a pinhole: it is a whole region of the
+    subject that the refinement did not rebuild at all. A hairline seam moves no sample
+    far from the surface; a missing chest leaves every sample taken there with nothing
+    nearby. Both meshes are put in Hi3D's own frame first (centred, unit radius),
+    because it does not preserve world scale.
+    """
+    import numpy as np
+    import trimesh
+    from scipy.spatial import cKDTree
+
+    loaded = []
+    for label, path in (("input", coarse_mesh), ("refined", refined)):
+        try:
+            mesh = trimesh.load(path, force="mesh", process=False)
+        except Exception as exc:   # trimesh raises a zoo of types for a broken GLB
+            raise RefineQualityError(f"cannot read the {label} mesh {path}: {exc}") from exc
+        vertices = np.asarray(mesh.vertices, dtype=np.float64)
+        faces = np.asarray(mesh.faces, dtype=np.int64)
+        if len(vertices) == 0 or len(faces) == 0:
+            raise RefineQualityError(f"the {label} mesh {path} has no triangles")
+        loaded.append((_unit_frame(vertices), faces))
+
+    (coarse_vertices, coarse_faces), (refined_vertices, refined_faces) = loaded
+    points = _sample_surface(coarse_vertices, coarse_faces, int(samples))
+    # Vertices alone are dense on a million-face refine but nearly empty on a coarse
+    # test mesh, where a point in the middle of a face is far from every corner. The
+    # surface samples close that gap without an exact point-to-triangle query, which
+    # would need a spatial index over millions of triangles.
+    surface = _sample_surface(refined_vertices, refined_faces, int(samples), seed=1)
+    distance, _ = cKDTree(np.vstack([refined_vertices, surface])).query(points, workers=-1)
+    return float((distance <= tolerance).mean())
 
 
 def venv_python(repo: Path) -> Path:
@@ -191,19 +297,71 @@ def model_dir_present() -> tuple[bool, Path, list[str]]:
     return not missing, root, missing
 
 
+#: The rungs a request can fall back through, heaviest first. A request starts at its
+#: own rung; a lower one is tried only when the mesh fails the coverage gate above.
+RESOLUTION_LADDER = (1536, 1024, 512)
+
+
+def _run_refinement(command: list[str], repo: Path, log: Any | None,
+                    on_process: Callable[[subprocess.Popen | None], None] | None) -> None:
+    """Run upstream's refine command, streaming its output when `log` is given.
+
+    `on_process` hands the live process to the caller and then `None` when it ends,
+    so a cancel button can kill it: the refinement prints nothing for ten minutes,
+    and a run that only checks a flag between lines cannot be stopped.
+    """
+    env = os.environ.copy()
+    env.setdefault("HF_HUB_OFFLINE", "1")
+    if log is None:
+        try:
+            subprocess.run(command, cwd=repo, env=env, check=True)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"Hi3D refinement failed with exit code {exc.returncode}"
+            ) from exc
+        return
+    process = subprocess.Popen(
+        command, cwd=repo, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1,
+        text=True,
+    )
+    if on_process is not None:
+        on_process(process)
+    try:
+        assert process.stdout is not None
+        for raw in process.stdout:
+            log(raw.rstrip("\n"))
+        code = process.wait()
+    finally:
+        if on_process is not None:
+            on_process(None)
+    if code != 0:
+        raise RuntimeError(f"Hi3D refinement failed with exit code {code}")
+
+
 def generate_hi3d(
     image: Path,
     coarse_mesh: Path,
     output_dir: Path,
     options: Hi3DOptions,
     log: Any | None = None,
-) -> Path:
-    """Refine `coarse_mesh` against `image` and return the refined GLB.
+    *,
+    on_process: Callable[[subprocess.Popen | None], None] | None = None,
+    check_quality: bool = True,
+) -> Hi3DResult:
+    """Refine `coarse_mesh` against `image` and return the refined GLB and its rung.
 
     Raises RuntimeError with a reason when the platform, the checkout or the
     weights are not ready. The weights gate (require_local) refuses with sizes
     when any of the three repos is not already on disk. `log(line)` receives
     the refinement's own output line by line, when the caller wants a live log.
+
+    After each attempt the result is measured against the input (`surface_coverage`).
+    A rung that rebuilds less than `COVERAGE_THRESHOLD` of the input's surface is
+    not returned as if it were fine: the next lower rung is tried, and the log says
+    why. On the Windows SDPA port the 1536 rung loses large slabs of the subject;
+    the gate steps down to 1024 (which the attention-port fix repairs) instead of
+    presenting a holey mesh as finished.
     """
     refusal = platform_refusal()
     if refusal:
@@ -247,38 +405,41 @@ def generate_hi3d(
     prepared = prepare_image(image, output_dir)
     output_path = output_dir / f"{image.stem}_hi3d.glb"
     python = venv_python(repo)
-    command = build_refine_command(
-        python,
-        repo / "Hi3Dv1.0" / "demo" / "refine_mesh.py",
-        prepared,
-        coarse_mesh,
-        output_path,
-        options,
-        str(model_dir),
-        dino_dir,
-        clip_dir,
-    )
-    env = os.environ.copy()
-    env.setdefault("HF_HUB_OFFLINE", "1")
-    if log is None:
-        try:
-            subprocess.run(command, cwd=repo, env=env, check=True)
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(
-                f"Hi3D refinement failed with exit code {exc.returncode}"
-            ) from exc
-    else:
-        process = subprocess.Popen(
-            command, cwd=repo, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1,
-            text=True,
+    requested = int(options.resolution)
+    rungs = [rung for rung in RESOLUTION_LADDER if rung <= requested]
+
+    for position, rung in enumerate(rungs):
+        command = build_refine_command(
+            python,
+            repo / "Hi3Dv1.0" / "demo" / "refine_mesh.py",
+            prepared,
+            coarse_mesh,
+            output_path,
+            Hi3DOptions(repo=options.repo, resolution=rung, steps=options.steps,
+                        seed=options.seed, cpu_offload=options.cpu_offload),
+            str(model_dir),
+            dino_dir,
+            clip_dir,
         )
-        assert process.stdout is not None
-        for raw in process.stdout:
-            log(raw.rstrip("\n"))
-        code = process.wait()
-        if code != 0:
-            raise RuntimeError(f"Hi3D refinement failed with exit code {code}")
-    if not output_path.is_file():
-        raise RuntimeError(f"Hi3D reported success but did not create {output_path}")
-    return output_path
+        _run_refinement(command, repo, log, on_process)
+        if not output_path.is_file():
+            raise RuntimeError(f"Hi3D reported success but did not create {output_path}")
+        if not check_quality:
+            return Hi3DResult(output_path, rung)
+
+        score = surface_coverage(coarse_mesh, output_path)
+        log and log(f"Hi3D {rung}: rebuilt {score:.1%} of the input surface")
+        if score >= COVERAGE_THRESHOLD:
+            if rung != requested:
+                log and log(f"Hi3D {rung}: kept this one; the requested {requested} "
+                            "did not rebuild enough of the model")
+            return Hi3DResult(output_path, rung)
+        if position + 1 == len(rungs):
+            raise RefineQualityError(
+                f"Hi3D rebuilt only {score:.0%} of the model's surface at {rung}: "
+                "large parts of it are missing, not just seams. Finish without Hi3D, "
+                "or report this run — the gate stops here rather than ship a broken mesh."
+            )
+        log and log(f"Hi3D {rung}: only {score:.0%} of the model's surface came back; "
+                    f"stepping down to {rungs[position + 1]}")
+    raise RuntimeError("Hi3D produced no refinement to check")

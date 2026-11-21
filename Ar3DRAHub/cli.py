@@ -341,6 +341,7 @@ def main(argv: list[str] | None = None) -> int:
     trellis_texture_backend = None
     trellis_material_normalized = None
     trellis_material_mode = None
+    hi3d_result = None
 
     if not 0 < args.foreground_ratio <= 1:
         print("error: --foreground-ratio must be in (0, 1]", file=sys.stderr)
@@ -398,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.hi3d:
             from .hi3d_backend import Hi3DOptions, generate_hi3d
 
-            result = generate_hi3d(
+            hi3d_result = generate_hi3d(
                 image,
                 coarse_mesh,
                 working_output_dir,
@@ -409,7 +410,9 @@ def main(argv: list[str] | None = None) -> int:
                     seed=args.hi3d_seed,
                     cpu_offload=args.hi3d_offload,
                 ),
+                log=lambda line: print(line, file=sys.stderr),
             )
+            result = hi3d_result.path
         else:
             if args.workflow is None:
                 raise ValueError(
@@ -449,7 +452,8 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "steps": args.steps if args.trellis else None,
         "pre_simplify_cap": args.trellis_pre_simplify_cap if args.trellis else None,
-        "resolution": args.resolution if args.hi3d else None,
+        "resolution": hi3d_result.resolution if hi3d_result else None,
+        "requested_resolution": args.resolution if args.hi3d else None,
         "hi3d_steps": args.hi3d_steps if args.hi3d else None,
         "hi3d_seed": args.hi3d_seed if args.hi3d else None,
         "hi3d_offload": args.hi3d_offload if args.hi3d else None,

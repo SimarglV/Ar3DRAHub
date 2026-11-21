@@ -41,6 +41,33 @@ python pipeline.py --run-manifest manifests/example-hi3d.json
 - The image may be a cut-out (alpha kept) or a plain photo; the backend mattes
   uncut inputs with the shared remover.
 
+## Quality gate
+
+The high-resolution rungs are not reliable on every route. On this repo's Windows SDPA
+port, before the attention fix `scripts/patch_hi3d_sdpa.py` shipped (2026-11-21), the
+1024 rung rebuilt 89% of the input's surface and 512 rebuilt 100% — whole slabs of the
+body were absent, which reads as holes. The two causes and their fixes:
+
+- **The attention port padded every span to a whole-sequence mask.** The transformer's
+  self-attention is one span of every voxel, so the mask was tens of gigabytes and
+  forced PyTorch off its flash/memory-efficient kernels (fp32 softmax) into the math
+  kernel (fp16 softmax) — not what the weights were measured against. The port now runs
+  one fused SDPA call *per span*, no mask, so the fused kernels apply again. This
+  repaired 1024 (now ~96%).
+- **The 1536 rung is still unreliable** (~63% even after the fix): its third pass, at
+  structure resolution 192, is beyond what the checkpoint reliably produces on this
+  route. Every refine measures the result against the input
+  (`hi3d_backend.surface_coverage`: area-weighted samples of the input, distance to the
+  refined surface in Hi3D's own unit-radius frame) and, if less than 93% of that surface
+  came back, steps down one rung and says so in the log — so a 1536 request lands on
+  1024, not on a holey mesh. The run reports the rung that actually produced the mesh;
+  the requested one is kept beside it in the record. If even 512 fails, the run errors
+  with the measured share instead of presenting the mesh as finished.
+
+The gate is about missing geometry, not seams: a hairline gap moves no sampled point
+far from the surface, while a missing chest leaves every sample there with nothing
+nearby.
+
 ## In the studio
 
 Finish offers **Hi3D refine** (NVIDIA only, the model must have its reference

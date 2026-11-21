@@ -45,6 +45,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The 3 MB cap in `check-added-large-files` no longer applies to `assets/`: the promo
   art and the example meshes are deliberately bigger than that.
 
+### Fixed
+- **Hi3D lost whole slabs of the model at 1024/1536** — real missing geometry, not
+  shading. Two causes. The dominant one was **the SDPA attention port**
+  (`scripts/patch_hi3d_sdpa.py`): it padded every span up to a mask the size of the
+  whole voxel sequence, so PyTorch left the flash/memory-efficient kernels (fp32
+  softmax) for the math kernel (fp16 softmax), which is not what the weights were
+  measured against. It now runs one fused SDPA call per span — no mask — so the fused
+  kernels apply again; 1024 went from 89% of the input surface rebuilt to ~96%, and
+  Cancel now stops the refine (the subprocess was never registered on the job).
+- **The 1536 rung stays unreliable** (~63% even after the port fix — its third pass at
+  structure 192 is beyond the checkpoint's reach on this route) and would still ship
+  holes. So every refine now measures the result against the input
+  (`hi3d_backend.surface_coverage`, area-weighted samples, unit-radius frame) and, below
+  93%, steps down one rung and says so in the log: a 1536 request lands on 1024. The
+  run reports the rung that actually produced the mesh; the requested one is kept
+  beside it; if even 512 fails, the run errors instead of presenting a holey model.
+- **Watertight was silently skipped after a Hi3D geometry-only refine.** That route ends
+  before the retopo worker, and the rebuild lived only in the worker's success path, so
+  a ticked Watertight produced no `watertight.glb` and no message. Both routes now call
+  one `watertight_extra` helper; a failed rebuild still leaves the finished model intact
+  and is reported in the run's events and log.
+- **Agents could not ask for Watertight at all.** The step chain keeps an allow-list of
+  Finish keys (`activity_api.FINISH_KEYS`) and the four watertight ones were missing, so
+  `continue_asset(..., advanced={"watertight": True})` quietly produced a plain Finish.
+  They are listed now, with a test that walks the agent's own Advanced table.
+
 ## [0.5.9] - 2026-11-18
 
 ### Added

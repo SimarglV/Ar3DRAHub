@@ -136,14 +136,16 @@ def test_generate_gates_all_three_weight_repos(monkeypatch, tmp_path):
 
     monkeypatch.setattr(hi3d_backend.subprocess, "run", fake_run)
     result = generate_hi3d(
-        tmp_path / "in.png", coarse, tmp_path, Hi3DOptions(repo=tmp_path)
+        tmp_path / "in.png", coarse, tmp_path, Hi3DOptions(repo=tmp_path),
+        check_quality=False,
     )
     repos = {repo for repo, _ in seen}
     assert repos == {
         "facebook/dinov2-large",
         "openai/clip-vit-large-patch14",
     }
-    assert result.name == "in_hi3d.glb"
+    assert result.path.name == "in_hi3d.glb"
+    assert result.resolution == 512
 
 
 def test_generate_refuses_when_the_model_folder_is_missing_artifacts(monkeypatch, tmp_path):
@@ -224,3 +226,94 @@ def test_generate_surfaces_the_subprocess_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(hi3d_backend.subprocess, "run", fake_run)
     with pytest.raises(RuntimeError, match="exit code 3"):
         generate_hi3d(tmp_path / "in.png", coarse, tmp_path, Hi3DOptions(repo=tmp_path))
+
+
+def _ready_install(monkeypatch, tmp_path):
+    """The gates a run passes before the model work: platform, checkout, weights, image."""
+    from Ar3DRAHub import host, models_home, weight_gate
+
+    monkeypatch.setattr(host, "host_platform", lambda: host.NVIDIA)
+    monkeypatch.setattr(host, "os_family", lambda: "linux")
+    monkeypatch.setattr(host, "venv_python", lambda repo: tmp_path / ".venv" / "bin" / "python")
+    for name in ("Hi3Dv1.0/demo/refine_mesh.py", ".hi3d-build-complete", ".venv/bin/python"):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    model_root = tmp_path / "models" / "hi3d"
+    for relative in hi3d_backend.REQUIRED_FILES:
+        path = model_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"artifact")
+    monkeypatch.setattr(models_home, "vendor_models", lambda route: model_root)
+    monkeypatch.setattr(weight_gate, "require_local", lambda repo_id, **kw: f"/cache/{repo_id}")
+    import PIL.Image
+
+    PIL.Image.new("RGBA", (8, 8), (255, 0, 0, 0)).save(tmp_path / "in.png")
+    coarse = tmp_path / "coarse.glb"
+    coarse.write_bytes(b"glb")
+    return coarse
+
+
+def test_surface_coverage_is_one_for_the_same_mesh(tmp_path):
+    import trimesh
+
+    mesh = tmp_path / "box.glb"
+    trimesh.creation.box().export(mesh)
+    assert hi3d_backend.surface_coverage(mesh, mesh) > 0.999
+
+
+def test_surface_coverage_falls_when_regions_are_missing(tmp_path):
+    import trimesh
+
+    box = tmp_path / "box.glb"
+    trimesh.creation.box().export(box)
+    plane = trimesh.Trimesh(
+        vertices=[[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]],
+        faces=[[0, 1, 2], [0, 2, 3]], process=False,
+    )
+    plane.export(tmp_path / "plane.glb")
+    assert hi3d_backend.surface_coverage(box, tmp_path / "plane.glb") < 0.5
+
+
+def test_a_rung_that_loses_the_model_is_replaced_by_the_next_lower_one(monkeypatch, tmp_path):
+    import trimesh
+
+    coarse = _ready_install(monkeypatch, tmp_path)
+    attempts = []
+    scores = {1536: 0.52, 1024: 0.99, 512: 0.99}
+
+    def fake_run(command, repo, log, on_process):
+        attempts.append(int(command[command.index("--resolution") + 1]))
+        trimesh.creation.box().export(Path(command[command.index("--output") + 1]))
+
+    monkeypatch.setattr(hi3d_backend, "_run_refinement", fake_run)
+    monkeypatch.setattr(hi3d_backend, "surface_coverage",
+                        lambda coarse_mesh, refined: scores[attempts[-1]])
+    lines = []
+    result = generate_hi3d(
+        tmp_path / "in.png", coarse, tmp_path,
+        Hi3DOptions(repo=tmp_path, resolution=1536), log=lines.append,
+    )
+    assert attempts == [1536, 1024]
+    assert result.resolution == 1024
+    assert any("stepping down to 1024" in line for line in lines)
+
+
+def test_the_floor_fails_rather_than_shipping_a_broken_mesh(monkeypatch, tmp_path):
+    import trimesh
+
+    coarse = _ready_install(monkeypatch, tmp_path)
+    attempts = []
+
+    def fake_run(command, repo, log, on_process):
+        attempts.append(int(command[command.index("--resolution") + 1]))
+        trimesh.creation.box().export(Path(command[command.index("--output") + 1]))
+
+    monkeypatch.setattr(hi3d_backend, "_run_refinement", fake_run)
+    monkeypatch.setattr(hi3d_backend, "surface_coverage", lambda *args: 0.4)
+    with pytest.raises(hi3d_backend.RefineQualityError, match="40%"):
+        generate_hi3d(
+            tmp_path / "in.png", coarse, tmp_path,
+            Hi3DOptions(repo=tmp_path, resolution=1024), log=lambda line: None,
+        )
+    assert attempts == [1024, 512]

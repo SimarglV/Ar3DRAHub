@@ -476,6 +476,22 @@ def test_every_finish_detail_agents_can_ask_for_reaches_finish():
         assert aa.chain_from_form(form).finish_settings == settings, detail
 
 
+def test_every_advanced_finish_knob_an_agent_can_ask_for_reaches_finish():
+    """The chain keeps an allow-list; watertight was missing from it, so an agent asking for
+    the rebuild got a plain Finish and no word about it."""
+    from Ar3DRAHub import mcp_server as ms
+    finish = {"watertight": True, "watertight_across": 450, "watertight_tool": "own",
+              "watertight_wativo_res": 512, "hi3d": True, "hi3d_resolution": 512}
+    adv = ms.read_advanced({k: finish[k] for k in ms.ADVANCED if k in finish})
+    choices, _moves = ms.plan_extras(adv, None, False)
+    form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
+            "finish_settings": {"value": json.dumps(choices)}}
+    reached = aa.chain_from_form(form).finish_settings
+    assert reached["watertight"] is True
+    assert reached["watertight_across"] == 450
+    assert reached["hi3d"] is True and reached["hi3d_resolution"] == 512
+
+
 # --- Your own back picture (front + back upload, 2026-10-30) --------------------------------
 
 def _picture_bytes(fmt="PNG", mode="RGB"):

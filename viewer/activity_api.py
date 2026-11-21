@@ -37,7 +37,8 @@ MOVE_KEYS = ("speed", "arm_spread", "in_place")
 # "high" and "hero" were dropped here, so an agent asking for them got a plain Finish.
 FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge", "texture_size",
                "high_detail", "hero", "marigold", "marigold_normals", "photo_fade_normals",
-               "hi3d", "hi3d_resolution", "hi3d_texture")
+               "hi3d", "hi3d_resolution", "hi3d_texture",
+               "watertight", "watertight_across", "watertight_tool", "watertight_wativo_res")
 # Only Pixal3D builds from a front and a back picture.
 FRONT_BACK_ENGINES = {"pixal3d"}
 PICTURE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}

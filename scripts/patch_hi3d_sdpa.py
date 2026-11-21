@@ -47,11 +47,19 @@ def flash_attn_varlen_qkvpacked_func(qkv, cu_seqlens, max_seqlen, *,
                                      causal: bool = False):
     """Self-attention over the packed spans of ``qkv`` [N, 3, H, D].
 
-    Drop-in for flash-attn's varlen qkvpacked entry point, on torch's fused SDPA
-    over dense padded spans. One span per batch item: the span's queries attend
-    its own keys and values only (non-causal, as flash-attn's default). ``dropout_p``
-    must be 0 (inference); a nonzero value raises, since the port does not pretend
-    to reproduce training-time dropout. ``softmax_scale`` defaults to 1/sqrt(D).
+    Drop-in for flash-attn's varlen qkvpacked entry point, run as one fused SDPA
+    call *per span* and concatenated. A span is a self-contained batch item: its
+    queries attend its own keys and values only (non-causal, flash-attn's default).
+    ``dropout_p`` must be 0 (inference).
+
+    The previous port padded every span to one length and passed one mask the size
+    of the whole packed sequence. For the transformer that sequence is every voxel
+    (110,000 in the third pass), so the mask grew to tens of gigabytes and PyTorch
+    could no longer use its flash or memory-efficient attention kernels — the ones
+    that keep the softmax in float32 the way flash-attn does. It fell back to the
+    math kernel, whose half-precision softmax was not what the weights were
+    measured against, and the high-resolution passes lost whole slabs of geometry.
+    Splitting by span needs no mask at all, so the fused kernels apply again.
     """
     if dropout_p:
         raise ValueError("the SDPA port supports dropout_p=0 only (inference)")
@@ -65,22 +73,23 @@ def flash_attn_varlen_qkvpacked_func(qkv, cu_seqlens, max_seqlen, *,
         raise ValueError("qkvpacked expects [N, 3, H, D]")
     if max_seqlen <= 0:
         return qkv.new_empty(0, qkv.shape[2], qkv.shape[3])
-    lengths = cu[1:] - cu[:-1]                                  # [B]
-    positions = torch.arange(max_seqlen, device=qkv.device)     # [Lmax]
-    span_index = cu[:-1].unsqueeze(1) + positions.unsqueeze(0)  # [B, Lmax]
-    padded = qkv[span_index.clamp(max=int(cu[-1]) - 1)]         # [B, Lmax, 3, H, D]
-    valid = positions.unsqueeze(0) < lengths.unsqueeze(1)       # [B, Lmax]
-    mask = (valid.unsqueeze(2) & valid.unsqueeze(1)).unsqueeze(1)  # [B, 1, Lmax, Lmax]
     scale = softmax_scale if softmax_scale is not None else qkv.shape[3] ** -0.5
-    output = F.scaled_dot_product_attention(
-        padded[:, :, 0].transpose(1, 2),
-        padded[:, :, 1].transpose(1, 2),
-        padded[:, :, 2].transpose(1, 2),
-        attn_mask=mask,
-        scale=scale,
-    )                                                           # [B, H, Lmax]
-    packed = output.transpose(1, 2).reshape(-1, qkv.shape[2], qkv.shape[3])
-    return packed[valid.reshape(-1)]                            # [N, H, D]
+    head_dim = qkv.shape[3]
+    outputs = []
+    for b in range(batch):
+        start, end = int(cu[b]), int(cu[b + 1])
+        if end <= start:
+            continue
+        span = qkv[start:end].permute(1, 2, 0, 3)               # [3, H, L, D]
+        outputs.append(
+            F.scaled_dot_product_attention(                      # [1, H, L, D]
+                span[0].unsqueeze(0), span[1].unsqueeze(0), span[2].unsqueeze(0),
+                scale=scale,
+            )[0]
+        )
+    if not outputs:
+        return qkv.new_empty(0, qkv.shape[2], head_dim)
+    return torch.cat(outputs, dim=1).transpose(0, 1)             # [N, H, D]
 
 
 def flash_attn_varlen_kvpacked_func(q, kv, cu_seqlens_q, cu_seqlens_k,
@@ -90,9 +99,11 @@ def flash_attn_varlen_kvpacked_func(q, kv, cu_seqlens_q, cu_seqlens_k,
                                     causal: bool = False):
     """Cross-attention: packed queries [Nq, H, D] over packed kv [Nk, 2, H, D].
 
-    Drop-in for flash-attn's varlen kvpacked entry point. Query and key spans are
-    described separately; within a batch item every query attends every key of the
-    same item (non-causal). ``dropout_p`` must be 0 (inference).
+    Drop-in for flash-attn's varlen kvpacked entry point, run as one fused SDPA
+    call per query span. Query and key spans are described separately; within a
+    batch item every query attends every key of the same item (non-causal).
+    ``dropout_p`` must be 0 (inference). No mask: see the qkvpacked docstring for
+    why a whole-sequence mask forced a half-precision fallback.
     """
     if dropout_p:
         raise ValueError("the SDPA port supports dropout_p=0 only (inference)")
@@ -109,25 +120,25 @@ def flash_attn_varlen_kvpacked_func(q, kv, cu_seqlens_q, cu_seqlens_k,
         raise ValueError("kvpacked expects [N, 2, H, D]")
     if max_seqlen_q <= 0 or max_seqlen_k <= 0:
         return q.new_empty(0, q.shape[1], q.shape[2])
-    lengths_q = cu_q[1:] - cu_q[:-1]
-    lengths_k = cu_k[1:] - cu_k[:-1]
-    pos_q = torch.arange(max_seqlen_q, device=q.device)
-    pos_k = torch.arange(max_seqlen_k, device=q.device)
-    q_padded = q[(cu_q[:-1].unsqueeze(1) + pos_q.unsqueeze(0)).clamp(max=int(cu_q[-1]) - 1)]
-    kv_padded = kv[(cu_k[:-1].unsqueeze(1) + pos_k.unsqueeze(0)).clamp(max=int(cu_k[-1]) - 1)]
-    valid_q = pos_q.unsqueeze(0) < lengths_q.unsqueeze(1)       # [B, Lq]
-    valid_k = pos_k.unsqueeze(0) < lengths_k.unsqueeze(1)       # [B, Lk]
-    mask = (valid_q.unsqueeze(2) & valid_k.unsqueeze(1)).unsqueeze(1)  # [B, 1, Lq, Lk]
     scale = softmax_scale if softmax_scale is not None else q.shape[2] ** -0.5
-    output = F.scaled_dot_product_attention(
-        q_padded.transpose(1, 2),
-        kv_padded[:, :, 0].transpose(1, 2),
-        kv_padded[:, :, 1].transpose(1, 2),
-        attn_mask=mask,
-        scale=scale,
-    )                                                           # [B, H, Lq]
-    packed = output.transpose(1, 2).reshape(-1, q.shape[1], q.shape[2])
-    return packed[valid_q.reshape(-1)]                          # [Nq, H, D]
+    outputs = []
+    for b in range(batch):
+        q_start, q_end = int(cu_q[b]), int(cu_q[b + 1])
+        k_start, k_end = int(cu_k[b]), int(cu_k[b + 1])
+        if q_end <= q_start or k_end <= k_start:
+            continue
+        queries = q[q_start:q_end].transpose(0, 1)              # [H, Lq, D]
+        keys_values = kv[k_start:k_end].permute(1, 2, 0, 3)     # [2, H, Lk, D]
+        outputs.append(
+            F.scaled_dot_product_attention(                      # [1, H, Lq, D]
+                queries.unsqueeze(0),
+                keys_values[0].unsqueeze(0), keys_values[1].unsqueeze(0),
+                scale=scale,
+            )[0]
+        )
+    if not outputs:
+        return q.new_empty(0, q.shape[1], q.shape[2])
+    return torch.cat(outputs, dim=1).transpose(0, 1)            # [Nq, H, D]
 
 
 def _shim_source() -> str:

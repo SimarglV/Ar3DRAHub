@@ -521,8 +521,11 @@ def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool
         finish["watertight"] = True
         finish["watertight_across"] = adv["watertight_across"]
         # The checkbox and the setting are the same choice: the checkbox is how the studio
-        # shows it, so an agent asking for it must reach the same engine.
-        finish["watertight_tool"] = "external" if adv["wativo"] else adv["watertight_tool"]
+        # shows it, so an agent asking for it must reach the same engine. Unset stays unset:
+        # the studio's own default fills it, and a None would fail its range check.
+        tool = "external" if adv["wativo"] else adv["watertight_tool"]
+        if tool:
+            finish["watertight_tool"] = tool
         if adv["wativo"]:
             finish["watertight_wativo_res"] = adv["wativo_res"]
     move: dict[str, Any] = {}

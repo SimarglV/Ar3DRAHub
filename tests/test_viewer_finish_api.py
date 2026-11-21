@@ -34,6 +34,14 @@ def test_defaults_are_used_when_nothing_is_sent():
     assert settings is not finish.DEFAULT_SETTINGS  # a copy, not the shared dict
 
 
+def test_an_unset_choice_keeps_its_default():
+    """An agent's Advanced table leaves string choices unset, which reaches here as None;
+    None must mean "the default stands", not a range error."""
+    settings = finish.normalise_settings({"watertight": True, "watertight_tool": None})
+    assert settings["watertight"] is True
+    assert settings["watertight_tool"] == "own"
+
+
 def test_client_values_override_defaults():
     settings = finish.normalise_settings({"metallic": 0.648, "roughness": 0.686, "ior": 1.4})
     assert settings["metallic"] == pytest.approx(0.648)
@@ -814,11 +822,11 @@ def test_a_hi3d_run_lands_the_refined_mesh_as_the_result(tmp_path, monkeypatch):
 
     seen = {}
 
-    def fake_generate(image, coarse_mesh, output_dir, options, log=None):
+    def fake_generate(image, coarse_mesh, output_dir, options, log=None, on_process=None):
         seen["image"] = Path(image)
         seen["coarse"] = Path(coarse_mesh)
         seen["resolution"] = options.resolution
-        return refined
+        return hi3d_backend.Hi3DResult(refined, 512)
 
     monkeypatch.setattr(hi3d_backend, "generate_hi3d", fake_generate)
     monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
@@ -833,11 +841,115 @@ def test_a_hi3d_run_lands_the_refined_mesh_as_the_result(tmp_path, monkeypatch):
     assert gltf["asset"]["generator"].startswith("Ar3DRA Hub")
     assert job.events[-1]["phase"] == "done" and job.events[-1].get("hi3d") is True
     assert "geometry only" in job.events[-1]["message"]
+    assert job.events[-1]["hi3d_resolution"] == 512
     record = json.loads(job.record_path.read_text(encoding="utf-8"))
     assert record["stages"] == ["hi3d"] and record["hi3d"]["geometry_only"] is True
+    assert record["hi3d"]["resolution"] == 512
+    assert record["hi3d"]["requested_resolution"] == 512
     sidecar = json.loads(job.result_glb.with_suffix(".provenance.json").read_text(encoding="utf-8"))
     assert sidecar["operation"] == "hi3d-refine"
     assert "Hi3D" in sidecar["license"]["name"]
+
+
+def test_a_hi3d_geometry_only_run_still_builds_the_watertight_extra(tmp_path, monkeypatch):
+    """A Hi3D run without a texture ends before the worker, so it used to drop the watertight
+    rebuild the person ticked: the run said done and no watertight.glb existed."""
+    import finish_api
+    from Ar3DRAHub import hi3d_backend
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png",
+                         {"hi3d": True, "watertight": True, "watertight_across": 450})
+    job.image_path.parent.mkdir(parents=True, exist_ok=True)
+    job.image_path.write_bytes(b"png")
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+    job.input_dir.mkdir(parents=True, exist_ok=True)
+    refined = job.directory / "steps" / "source_hi3d.glb"
+    refined.parent.mkdir(parents=True, exist_ok=True)
+    refined.write_bytes(valid_glb(generator="the hi3d refine"))
+
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d",
+                        lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
+    monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+
+    rebuilt = job.directory / "steps" / "watertight.glb"
+    seen = {}
+
+    def fake_watertight(job_, source):
+        seen["source"] = Path(source)
+        seen["across"] = job_.settings["watertight_across"]
+        rebuilt.write_bytes(valid_glb(generator="the watertight rebuild"))
+        return rebuilt
+
+    monkeypatch.setattr(finish_api, "run_watertight", fake_watertight)
+    finish_api.run_job(job, manager)
+
+    assert seen["source"] == job.result_glb     # rebuilt from what Hi3D made
+    assert seen["across"] == 450
+    done = job.events[-1]
+    assert done["phase"] == "done" and done["hi3d"] is True
+    assert done["watertight"] is True and done["watertight_error"] is None
+    assert done["watertight_url"] == f"/api/finish/{job.id}/watertight.glb"
+
+
+def test_a_hi3d_geometry_only_run_keeps_the_result_when_the_rebuild_fails(tmp_path, monkeypatch):
+    """The rebuild is an extra file beside the finish, not a condition of it."""
+    import finish_api
+    from Ar3DRAHub import hi3d_backend
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"hi3d": True, "watertight": True})
+    job.image_path.parent.mkdir(parents=True, exist_ok=True)
+    job.image_path.write_bytes(b"png")
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+    job.input_dir.mkdir(parents=True, exist_ok=True)
+    refined = job.directory / "steps" / "source_hi3d.glb"
+    refined.parent.mkdir(parents=True, exist_ok=True)
+    refined.write_bytes(valid_glb(generator="the hi3d refine"))
+
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d",
+                        lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
+    monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+
+    def broken(job_, source):
+        raise RuntimeError("the watertight rebuild is not available here")
+
+    monkeypatch.setattr(finish_api, "run_watertight", broken)
+    finish_api.run_job(job, manager)
+
+    assert job.status == "done"
+    done = job.events[-1]
+    assert done["watertight"] is True and done["watertight_url"] is None
+    assert "not available" in done["watertight_error"]
+    assert any("watertight: " in line for line in job.log_lines)
+
+
+def test_a_hi3d_run_records_the_rung_that_actually_made_the_mesh(tmp_path, monkeypatch):
+    """Asking for 1536 and getting 512 must not be written down as 1536."""
+    import finish_api
+    from Ar3DRAHub import hi3d_backend
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"hi3d": True,
+                                                       "hi3d_resolution": 1536})
+    job.image_path.parent.mkdir(parents=True, exist_ok=True)
+    job.image_path.write_bytes(b"png")
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+    job.input_dir.mkdir(parents=True, exist_ok=True)
+    refined = job.directory / "steps" / "source_hi3d.glb"
+    refined.parent.mkdir(parents=True, exist_ok=True)
+    refined.write_bytes(valid_glb(generator="the hi3d refine"))
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d",
+                        lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
+    monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    finish_api.run_job(job, manager)
+    record = json.loads(job.record_path.read_text(encoding="utf-8"))
+    assert record["hi3d"]["resolution"] == 512
+    assert record["hi3d"]["requested_resolution"] == 1536
+    assert job.events[-1]["hi3d_resolution"] == 512
 
 
 def test_a_hi3d_run_still_honours_cancel_after_the_refine(tmp_path, monkeypatch):
@@ -854,7 +966,8 @@ def test_a_hi3d_run_still_honours_cancel_after_the_refine(tmp_path, monkeypatch)
     refined.parent.mkdir(parents=True, exist_ok=True)
     refined.write_bytes(valid_glb(generator="the hi3d refine"))
     job.cancel_requested = True
-    monkeypatch.setattr(hi3d_backend, "generate_hi3d", lambda *a, **k: refined)
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d",
+                        lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
     monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
     finish_api.run_job(job, manager)
     assert job.status == "cancelled"
@@ -878,7 +991,8 @@ def test_a_hi3d_textured_run_falls_through_to_the_normal_worker(tmp_path, monkey
     refined.write_bytes(b"refined")
     textured = job.directory / "steps" / "hi3d_textured.glb"
     textured.write_bytes(valid_glb(generator="the hi3d refine"))
-    monkeypatch.setattr(hi3d_backend, "generate_hi3d", lambda *a, **k: refined)
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d",
+                        lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
     monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
 
     class Transfer:

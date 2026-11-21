@@ -25,7 +25,10 @@ import time
 import uuid
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from Ar3DRAHub.hi3d_backend import Hi3DResult
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -174,6 +177,8 @@ def normalise_settings(raw: dict[str, Any]) -> dict[str, Any]:
     for key, value in raw.items():
         if key not in DEFAULT_SETTINGS:
             continue
+        if value is None:
+            continue      # "not chosen": the default stands, and a None fails every range check
         if key in BOOL_SETTINGS:
             settings[key] = bool(value)
             continue
@@ -479,19 +484,21 @@ def hi3d_readiness() -> tuple[bool, str | None]:
     return True, None
 
 
-def run_hi3d(job: FinishJob) -> None:
+def run_hi3d(job: FinishJob) -> int:
     """The Hi3D refine stage: replaces the retopo worker and produces geometry-only GLBs.
 
     The refine conditions on the reference picture, so a run must have one. The result
     carries a derived sidecar chaining the source's licence with Hi3D's, so the chain
-    survives the textureless GLB Hi3D exports.
+    survives the textureless GLB Hi3D exports. The record names the rung that actually
+    produced the mesh, which can be below the request when the quality gate steps down;
+    the return value is that rung, for the caller's done event.
     """
     refined = refine_stage(job, "Hi3D: refining the geometry at {resolution} "
                                  "(geometry only — no textures)")
     from Ar3DRAHub.provenance import set_glb_generator
 
     job.result_glb.parent.mkdir(parents=True, exist_ok=True)
-    refined.replace(job.result_glb)
+    refined.path.replace(job.result_glb)
     set_glb_generator(job.result_glb)
     write_hi3d_sidecar(job, job.asset_path, job.result_glb)
     job.append_log(f"hi3d refine done -> {job.result_glb.name}")
@@ -501,7 +508,8 @@ def run_hi3d(job: FinishJob) -> None:
         "output": str(job.result_glb),
         "stages": ["hi3d"],
         "hi3d": {
-            "resolution": int(job.settings.get("hi3d_resolution", 512)),
+            "resolution": refined.resolution,
+            "requested_resolution": int(job.settings.get("hi3d_resolution", 512)),
             "geometry_only": True,
         },
         "size_bytes": job.result_glb.stat().st_size,
@@ -512,13 +520,16 @@ def run_hi3d(job: FinishJob) -> None:
                                                       encoding="utf-8")
     except OSError:
         pass
+    return refined.resolution
 
 
-def refine_stage(job: FinishJob, message_template: str) -> Path:
-    """Run the Hi3D refine itself and return the refined GLB (in the steps dir).
+def refine_stage(job: FinishJob, message_template: str) -> "Hi3DResult":
+    """Run the Hi3D refine itself and return the refined GLB (in the steps dir) and its rung.
 
     Does not touch the result or the records: the caller decides whether this is the
-    whole run (geometry-only) or the first half of a textured finish.
+    whole run (geometry-only) or the first half of a textured finish. The live process
+    is registered on the job so Cancel kills it; Hi3D prints nothing for minutes and a
+    flag checked between log lines would never be seen.
     """
     from Ar3DRAHub import hi3d_backend
 
@@ -530,6 +541,10 @@ def refine_stage(job: FinishJob, message_template: str) -> Path:
     resolution = int(job.settings.get("hi3d_resolution", 512))
     job.emit({"phase": "hi3d", "overall_pct": 0,
               "message": message_template.format(resolution=resolution)})
+
+    def register(process) -> None:
+        job.process = process
+
     return hi3d_backend.generate_hi3d(
         image=job.image_path,
         coarse_mesh=job.asset_path,
@@ -538,6 +553,7 @@ def refine_stage(job: FinishJob, message_template: str) -> Path:
             repo=HI3D_VENDOR, resolution=resolution, cpu_offload=True,
         ),
         log=job.append_log,
+        on_process=register,
     )
 
 
@@ -593,7 +609,7 @@ def run_hi3d_textured(job: FinishJob) -> tuple[Path, Path]:
     job.emit({"phase": "hi3d-transfer", "overall_pct": 0,
               "message": "Transferring the original texture onto the refined geometry"})
     job.process = subprocess.Popen(
-        hi3d_transfer_command(job, refined, textured), cwd=str(REPO),
+        hi3d_transfer_command(job, refined.path, textured), cwd=str(REPO),
         env=processes.child_env(),
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1,
         **processes.TEXT_PIPE, **processes.group_popen_kwargs(),
@@ -640,6 +656,23 @@ def watertight_command(source: Path, output: Path, across: int, tool: str = "own
             ["--wativo-python", str(python), "--wativo-script", str(script)]
             if script.is_file() else ["--wativo", str(python)])
     return command
+
+
+def watertight_extra(job: FinishJob) -> tuple[Path | None, str | None]:
+    """The optional watertight rebuild of the finished model, and why it did not happen.
+
+    Runs last, and is allowed to fail without losing the finish: the finished model is the
+    deliverable, the watertight rebuild is an extra one beside it. Shared by both routes,
+    because a Hi3D geometry-only run ends before the worker and still owes the rebuild the
+    person asked for -- skipping it silently is how the box looked ticked and did nothing.
+    """
+    if not job.settings.get("watertight"):
+        return None, None
+    try:
+        return run_watertight(job, job.result_glb), None
+    except RuntimeError as exc:
+        job.append_log(f"watertight: {exc}")
+        return None, str(exc)
 
 
 def run_watertight(job: FinishJob, source: Path) -> Path:
@@ -1209,20 +1242,23 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         job.status = "running"
         worker_source = None
         worker_record = None
+        refined_at = None
         if job.settings.get("hi3d"):
             if job.settings.get("hi3d_texture"):
                 worker_source, worker_record = run_hi3d_textured(job)
             else:
-                run_hi3d(job)
+                refined_at = run_hi3d(job)
             if job.cancel_requested:
                 job.status = "cancelled"
                 job.emit({"phase": "error", "message": "Finishing cancelled"})
                 manager.finish(job)
                 return
             if worker_source is None:
+                watertight_target, watertight_error = watertight_extra(job)
                 job.emit({
                     "phase": "done", "overall_pct": 100,
-                    "message": (f"Hi3D refined at {job.result_glb.stat().st_size / 1048576:.1f} MB · "
+                    "message": (f"Hi3D {refined_at} refined at "
+                                f"{job.result_glb.stat().st_size / 1048576:.1f} MB · "
                                 "geometry only — no textures"),
                     "pixel_match": "off",
                     "result_url": f"/api/finish/{job.id}/result.glb",
@@ -1233,6 +1269,14 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                     "source_url": served_url(job.asset_path),
                     "pixal3d": (job.views_dir / "transforms.json").is_file(),
                     "hi3d": True,
+                    "hi3d_resolution": refined_at,
+                    "watertight": (watertight_target is not None
+                                   or bool(job.settings.get("watertight"))),
+                    "watertight_path": (library_path(watertight_target)
+                                        if watertight_target is not None else None),
+                    "watertight_url": (f"/api/finish/{job.id}/watertight.glb"
+                                       if watertight_target is not None else None),
+                    "watertight_error": watertight_error,
                 })
                 job.status = "done"
                 usage_api.count_done("finish")   # nothing if the person turned sharing off
@@ -1298,15 +1342,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 if provenance.is_file():
                     shutil.copy(provenance, job.record_path)   # what record_url serves
             marigold_ran, marigold_note = run_marigold(job)
-            watertight_target, watertight_error = None, None
-            if job.settings.get("watertight"):
-                # Last, and allowed to fail without losing the finish: the finished model is
-                # the deliverable, the watertight rebuild is an extra one beside it.
-                try:
-                    watertight_target = run_watertight(job, job.result_glb)
-                except RuntimeError as exc:
-                    watertight_error = str(exc)
-                    job.append_log(f"watertight: {watertight_error}")
+            watertight_target, watertight_error = watertight_extra(job)
             pixel_match = pixel_match_result(photo_ran, job.views_dir, job.settings)
             try:
                 (job.directory / PIXEL_MATCH_NAME).write_text(json.dumps({"pixel_match": pixel_match}),

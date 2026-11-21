@@ -285,12 +285,14 @@ def test_hi3d_manifest_runs_and_records_the_coarse_mesh(tmp_path, monkeypatch):
 
     seen = {}
 
-    def generate(image_arg, coarse_arg, working, options):
+    def generate(image_arg, coarse_arg, working, options, log=None):
         seen["coarse"] = Path(coarse_arg)
         seen["options"] = options
         asset = Path(working) / "mesh.glb"
         asset.write_bytes(valid_glb(generator="the hi3d backend"))
-        return asset
+        from Ar3DRAHub.hi3d_backend import Hi3DResult
+
+        return Hi3DResult(asset, options.resolution)
 
     monkeypatch.setattr("Ar3DRAHub.hi3d_backend.generate_hi3d", generate)
     assert main(["--run-manifest", str(manifest)]) == 0
