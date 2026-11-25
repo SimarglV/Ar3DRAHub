@@ -17,13 +17,22 @@ WEIGHTS = {"diffusion_model": Path("/w/dit.gguf"), "llm": Path("/w/llm.gguf"),
            "vae": Path("/w/vae.safetensors")}
 
 
-def test_the_back_is_drawn_at_768_in_8_steps_from_the_reference():
+def test_the_back_is_drawn_at_1024_with_flux_defaults():
     command = mbv.command_for(Path("/r/ref.png"), Path("/o/back.png"), 3, WEIGHTS,
-                              Path("/w/mmproj.gguf"), binary=Path("/bin/sd-cli"))
-    assert command[command.index("-W") + 1] == "768" and command[command.index("-H") + 1] == "768"
-    assert command[command.index("--steps") + 1] == "8"
-    assert command[command.index("-r") + 1] == "/r/ref.png"
+                              None, binary=Path("/bin/sd-cli"))
+    assert command[command.index("-W") + 1] == "1024" and command[command.index("-H") + 1] == "1024"
+    assert command[command.index("--steps") + 1] == "4"    # Flux's default
+    assert command[command.index("-r") + 1] == str(Path("/r/ref.png"))
     assert command[command.index("-p") + 1] == mbv.back_view.BACK_PROMPT
+    assert "--llm_vision" not in command                    # Flux reads the reference itself
+
+
+def test_a_side_view_is_drawn_with_the_side_prompt():
+    command = mbv.command_for(Path("/r/ref.png"), Path("/o/side.png"), 3, WEIGHTS,
+                              Path("/w/mmproj.gguf"), binary=Path("/bin/sd-cli"),
+                              prompt=mbv.back_view.side_prompt("left"))
+    assert command[command.index("-p") + 1] == mbv.back_view.side_prompt("left")
+    assert "left side" in command[command.index("-p") + 1]
 
 
 def test_a_missing_vision_file_stops_and_says_how_to_get_it(monkeypatch, tmp_path, capsys):
@@ -32,7 +41,7 @@ def test_a_missing_vision_file_stops_and_says_how_to_get_it(monkeypatch, tmp_pat
     monkeypatch.setattr(mbv.image_api, "resolve_vision", lambda *a: None)
     monkeypatch.setattr(mbv.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(
         AssertionError("ran Qwen")))
-    assert mbv.main([str(front), str(tmp_path / "back.png")]) == 1
+    assert mbv.main([str(front), str(tmp_path / "back.png"), "--engine", "qwen"]) == 1
     out = capsys.readouterr().out
     assert "mmproj" in out and "0.75 GB" in out and "--vision" in out
 

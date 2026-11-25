@@ -67,6 +67,7 @@ COMMANDS: dict[str, list[str]] = {
     "flux-image": [sys.executable, str(REPO / "scripts" / "bootstrap_flux_image.py"), "--yes"],
     "flux-image-light": [sys.executable, str(REPO / "scripts" / "bootstrap_flux_image.py"),
                          "--light", "--yes"],
+    "diffusers-image": [sys.executable, str(REPO / "scripts" / "bootstrap_diffusers.py"), "--yes"],
     "matte": [sys.executable, str(REPO / "scripts" / "bootstrap_matte.py"), "--yes"],
     "upscaler": [sys.executable, str(REPO / "scripts" / "bootstrap_upscaler.py"), "--yes"],
     "autorig": [sys.executable, str(REPO / "scripts" / "bootstrap_autorig.py"), "--yes"],
@@ -76,6 +77,9 @@ COMMANDS: dict[str, list[str]] = {
     # interpreter -- the script makes the environment itself with uv.
     "wativo": [sys.executable, str(REPO / "scripts" / "bootstrap_wativo.py"), "--yes"],
     "hi3d": [sys.executable, str(REPO / "scripts" / "bootstrap_hi3d.py"), "--yes"],
+    # NVIDIA-only: the FLUX.2 texture repaint. Its own 3.12 venv with torch cu128, so the
+    # installer must not run on the studio's interpreter -- the script makes the venv itself.
+    "ultratex": [sys.executable, str(REPO / "scripts" / "bootstrap_ultratex.py"), "--yes"],
     # NVIDIA-only: Tencent's own Hunyuan3D-2.1, built for CUDA. The catalogue marks it
     # unsupported everywhere else, so start() refuses before this runs on a Mac.
     "hunyuan-cuda": [sys.executable, str(REPO / "scripts" / "bootstrap_hunyuan_cuda.py"),
@@ -205,7 +209,7 @@ def also_fetches(backend_id: str) -> list[dict[str, str]]:
             repo, filename, size = front_back.qwen.VISION
             extra.append({"what": f"Qwen3-VL vision projector ({filename}), so Qwen-Image can draw backs",
                           "from": f"https://huggingface.co/{repo}", "size": f"{size:.2f} GB",
-                          "licence": "Qwen Research License"})
+                          "licence": "MIT"})
     return extra
 
 

@@ -311,6 +311,18 @@ def test_an_asset_carries_its_back_picture_when_there_is_one(output):
     assert "a wooden barrel back" not in assets   # the back is not an asset of its own
 
 
+def test_an_asset_carries_its_side_views_when_there_are_some(output):
+    stem = _single_prop(output)
+    _write(output / "images" / stem / f"{stem}__left.png", b"left", 6050)
+    _write(output / "images" / stem / f"{stem}__right.png", b"right", 6050)
+    _write(output / "images" / stem / f"{stem}__left_reference.png", b"ref", 6050)
+    assets = _by_name(aa.list_assets(output))
+    assert assets["a wooden barrel"]["left"] == f"images/{stem}/{stem}__left.png"
+    assert assets["a wooden barrel"]["right"] == f"images/{stem}/{stem}__right.png"
+    assert assets["a lone fox"]["left"] is None and assets["a lone fox"]["right"] is None
+    assert not any("left" in name or "right" in name for name in assets)   # neither side is an asset
+
+
 def test_an_uploaded_picture_belongs_to_its_model_with_its_back(output):
     up = output / "images" / "uploads"
     _write(up / "my-orc__1a2b3c4d.png", b"uploaded", 7000)

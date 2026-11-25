@@ -147,7 +147,7 @@ def test_the_announcement_names_the_route_the_size_and_the_licence():
     assert "AMD / ROCm" in text and "rocm7.2" in text
     assert f"{boot.total_gb():.1f} GB" in text
     assert "gated" in text.lower()
-    assert "$1M" in text
+    assert "MIT" in text
 
 
 def test_the_announcement_does_not_claim_a_size_when_nothing_is_downloading():

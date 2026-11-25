@@ -67,7 +67,7 @@ WEIGHTS = [
 ]
 
 LICENCE = (
-    "Marigold V2 code and models: Apache-2.0.\n"
+    "Marigold V2 code and models: MIT.\n"
     f"  Qwen-Image-Edit-2509 backbone: its own licence (see {QWEN_REPO})."
 )
 

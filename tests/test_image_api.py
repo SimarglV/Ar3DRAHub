@@ -51,7 +51,7 @@ def test_defaults_are_the_measured_fast_ones():
     17 minutes against 11 for an identical picture. 768/10 steps was 4m22s."""
     assert api.DEFAULTS["cfg_scale"] == 1.0
     assert api.DEFAULTS["steps"] == 8  # tested by eye against 10: nothing visible lost
-    assert api.DEFAULTS["width"] == api.DEFAULTS["height"] == 768
+    assert api.DEFAULTS["width"] == api.DEFAULTS["height"] == 1024
 
 
 def test_offload_to_cpu_is_not_used():
@@ -148,7 +148,7 @@ def test_slug_survives_a_prompt_with_nothing_usable():
 def test_provenance_records_the_licence_and_its_class():
     """A PNG in a folder six months from now remembers nothing on its own."""
     record = api.provenance("a fox", api.clean_settings({}), 262.3, Path("/o/fox.png"))
-    assert record["license"]["classification"] == "commercial-conditional"
+    assert record["license"]["classification"] == "commercial-clear"
     assert "Built with Qwen" == record["license"]["attribution"]
     assert record["prompt"] == "a fox"
     json.dumps(record)  # must survive being written to the sidecar
@@ -375,10 +375,24 @@ def test_the_mac_is_still_left_watched_over_nothing(tmp_path, monkeypatch):
 def test_an_edit_carries_the_reference_and_the_vision_file():
     settings = api.clean_settings({})
     command = api.build_command("the back", settings, Path("/out/x.png"), WEIGHTS,
-                                binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"),
+                                binary=Path("/bin/sd-cli"), references=[Path("/in/front.png")],
                                 vision=Path("/w/mmproj.gguf"))
     assert command[command.index("-r") + 1] == "/in/front.png"
     assert command[command.index("--llm_vision") + 1] == "/w/mmproj.gguf"
+
+
+def test_a_multi_reference_edit_passes_each_reference_in_order():
+    settings = api.clean_settings({})
+    front, back = Path("/in/front.png"), Path("/in/back.png")
+    command = api.build_command("the side", settings, Path("/out/s.png"), WEIGHTS,
+                                binary=Path("/bin/sd-cli"),
+                                references=[front, back],
+                                vision=Path("/w/mmproj.gguf"))
+    assert command.count("-r") == 2
+    first = command.index("-r")
+    assert command[first + 1] == str(front)
+    assert command[command.index("-r", first + 1) + 1] == str(back)
+    assert command.count("--llm_vision") == 1   # one projector, several references
 
 
 def test_a_plain_picture_has_no_reference():
@@ -388,7 +402,7 @@ def test_a_plain_picture_has_no_reference():
 def test_an_edit_without_the_vision_file_is_refused():
     with pytest.raises(ValueError, match="vision"):
         api.build_command("the back", api.clean_settings({}), Path("/out/x.png"), WEIGHTS,
-                          binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"))
+                          binary=Path("/bin/sd-cli"), references=[Path("/in/front.png")])
 
 
 def test_the_vision_file_is_the_one_beside_the_qwen_llm():
@@ -417,20 +431,66 @@ def test_a_back_job_lands_beside_its_front(tmp_path):
     job = api.create_back_job(manager, front, seed=3)
     assert job.output_path == front.with_name("an-orc__20261012-120000__back.png")
     assert job.prompt == api.back_view.BACK_PROMPT
-    assert job.settings["width"] == 768 and job.settings["steps"] == 8 and job.settings["seed"] == 3
-    assert job.reference.is_file() and job.reference.parent == front.parent
+    assert job.settings["width"] == 1024 and job.settings["steps"] == 4 and job.settings["seed"] == 3
+    assert job.references[0].is_file() and job.references[0].parent == front.parent
+
+
+def test_a_back_job_inherits_the_fronts_steps(tmp_path):
+    manager = api.ImageJobManager(tmp_path)
+    front = _front(tmp_path)
+    front.with_suffix(".provenance.json").write_text(json.dumps({"settings": {"steps": 12}}))
+    job = api.create_back_job(manager, front, seed=3)
+    assert job.settings["steps"] == 12
+
+
+def test_a_side_job_inherits_the_fronts_steps(tmp_path):
+    manager = api.ImageJobManager(tmp_path)
+    front = _front(tmp_path)
+    front.with_suffix(".provenance.json").write_text(json.dumps({"settings": {"steps": 12}}))
+    job = api.create_side_job(manager, front, "left", seed=3)
+    assert job.settings["steps"] == 12
+
+
+def test_a_back_job_without_a_front_record_keeps_the_engine_default(tmp_path):
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_back_job(manager, _front(tmp_path), seed=3)
+    assert job.settings["steps"] == 4   # Flux's default: no front record to inherit from
 
 
 def test_a_back_jobs_command_is_an_edit_from_its_reference(tmp_path):
     manager = api.ImageJobManager(tmp_path)
     job = api.create_back_job(manager, _front(tmp_path), seed=3)
     command = api.job_command(job, WEIGHTS, vision=Path("/w/mmproj.gguf"), binary=Path("/bin/sd-cli"))
-    assert command[command.index("-r") + 1] == str(job.reference)
+    assert command[command.index("-r") + 1] == str(job.references[0])
 
 
-def test_a_back_job_without_the_vision_file_asks_for_setup(tmp_path, monkeypatch):
+def test_a_side_job_uses_the_front_reference_when_there_is_no_back(tmp_path):
+    from PIL import Image
     manager = api.ImageJobManager(tmp_path)
-    job = api.create_back_job(manager, _front(tmp_path), seed=3)
+    front = _front(tmp_path)
+    job = api.create_side_job(manager, front, "left", seed=3)
+    assert job.prompt == api.back_view.side_prompt("left")
+    assert len(job.references) == 1
+    assert Image.open(job.references[0]).size == (64, 64)   # the front's cut-out, square
+
+
+def test_a_side_job_uses_two_references_when_the_back_exists(tmp_path):
+    from PIL import Image
+    manager = api.ImageJobManager(tmp_path)
+    front = _front(tmp_path)
+    # a drawn back beside the front (a subject on transparent, like _front)
+    rgba = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    rgba.paste((40, 60, 180, 255), (16, 8, 48, 60))
+    rgba.save(front.with_name(f"{front.stem}__back.png"))
+    job = api.create_side_job(manager, front, "right", seed=3)
+    assert job.prompt == api.back_view.side_prompt("right", with_back=True, flux=True)
+    assert len(job.references) == 2
+    assert all(Image.open(r).size == (64, 64) for r in job.references)
+
+
+def test_a_qwen_back_job_without_the_vision_file_asks_for_setup(tmp_path, monkeypatch):
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_back_job(manager, _front(tmp_path), seed=3, engine=api.QWEN)
     monkeypatch.setattr(api, "resolve_vision", lambda *a: None)
     api.run_job(job, manager, weights=WEIGHTS)
     assert job.status == "error" and job.events[-1].get("needs_setup")
@@ -512,7 +572,7 @@ def test_flux_draws_at_1024_in_4_steps_and_8_when_the_picture_is_the_end_product
 def test_a_flux_edit_reads_the_reference_without_a_vision_projector():
     settings = api.clean_settings({}, api.FLUX)
     command = api.build_command("its back", settings, Path("/out/b.png"), WEIGHTS,
-                                binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"), engine=api.FLUX)
+                                binary=Path("/bin/sd-cli"), references=[Path("/in/front.png")], engine=api.FLUX)
     assert command[command.index("-r") + 1] == "/in/front.png"
     assert "--llm_vision" not in command
     assert api.can_edit(api.FLUX)
@@ -521,13 +581,13 @@ def test_a_flux_edit_reads_the_reference_without_a_vision_projector():
 def test_a_qwen_edit_still_needs_its_vision_projector():
     with pytest.raises(ValueError, match="vision projector"):
         api.build_command("its back", api.clean_settings({}), Path("/out/b.png"), WEIGHTS,
-                          binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"))
+                          binary=Path("/bin/sd-cli"), references=[Path("/in/front.png")])
 
 
 def test_a_flux_picture_records_its_apache_licence(tmp_path):
     record = api.provenance("a fox", api.clean_settings({}, api.FLUX), 60.0, tmp_path / "x.png", api.FLUX)
     assert record["model"]["id"] == "flux2-klein-4b"
-    assert record["license"]["name"] == "Apache-2.0" and record["license"]["classification"] == "commercial-clear"
+    assert record["license"]["name"] == "MIT" and record["license"]["classification"] == "commercial-clear"
     assert record["license"]["attribution"] is None
     assert "commercial" in record["license"]["inherited_by_derivatives"]
     assert record["model"]["weights"]["llm"]["file"] == "Qwen3-4B-Q8_0.gguf"
@@ -649,8 +709,8 @@ def test_the_engine_is_shown_the_picture_with_the_painted_area_blanked(tmp_path)
     back = _back(tmp_path)
     job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(), "a leather strap")
     command = api.job_command(job, WEIGHTS, None, binary=Path("/bin/sd-cli"))
-    assert command[command.index("-r") + 1] == str(job.reference) != str(job.init)
-    with Image.open(job.reference) as guide, Image.open(job.mask) as mask:
+    assert command[command.index("-r") + 1] == str(job.references[0]) != str(job.init)
+    with Image.open(job.references[0]) as guide, Image.open(job.mask) as mask:
         assert guide.size == mask.size == (256, 256)
         grey = (api.BRUSH_GUIDE_GREY,) * 3
         assert guide.getpixel((120, 120)) == grey                 # painted: blanked
@@ -673,7 +733,7 @@ def test_a_brush_job_starts_from_the_back_with_its_mask_and_keeps_the_old(tmp_pa
     assert command[command.index("-i") + 1] == str(job.init)
     assert command[command.index("--mask") + 1] == str(job.mask)
     assert command[command.index("--strength") + 1] == str(api.BRUSH_STRENGTH)
-    assert command[command.index("-r") + 1] == str(job.reference)  # Flux sees the picture it repaints, blanked
+    assert command[command.index("-r") + 1] == str(job.references[0])  # Flux sees the picture it repaints, blanked
 
 
 def test_an_empty_stroke_is_refused_before_anything_runs(tmp_path):
@@ -905,3 +965,97 @@ def test_two_swaps_in_one_second_keep_both_old_pictures(tmp_path):
     kept = sorted(p.read_bytes() for p in tmp_path.glob("orc__back_prev_*.png"))
     assert kept == [b"first", b"second"] and final.read_bytes() == b"third"
     assert len(api.back_versions(final)) == 2
+
+
+def test_marigold_command_runs_the_predictor_in_its_venv(monkeypatch):
+    monkeypatch.setattr(api, "marigold_python", lambda: Path("/venv/marigold-python"))
+    command = api.marigold_command(Path("/in/pic.png"), Path("/out"), "albedo")
+    assert command[0] == str(Path("/venv/marigold-python"))
+    assert command[1].endswith("marigold_v2_predict.py")
+    assert command[2] == str(Path("/in/pic.png"))
+    assert command[command.index("--modality") + 1] == "albedo"
+    assert command[command.index("--out") + 1] == str(Path("/out"))
+
+
+def test_marigold_ready_checks_the_venv(monkeypatch, tmp_path):
+    interpreter = tmp_path / "python"
+    monkeypatch.setattr(api, "marigold_python", lambda: interpreter)
+    assert api.marigold_ready() is False
+    interpreter.write_bytes(b"x")
+    assert api.marigold_ready() is True
+
+
+def test_marigold_record_keeps_the_source_licence_class():
+    origin = {"license": {"name": "Apache-2.0", "classification": "commercial-clear"},
+              "components": [{"component": "FLUX.2", "license": "Apache-2.0"}]}
+    record = api.marigold_record("front.png", "albedo", origin)
+    assert record["kind"] == "generated-image" and record["model"]["id"] == "marigold-v2"
+    assert record["license"]["classification"] == "commercial-clear"
+    assert record["derived_from"] == {"picture": "front.png", "operation": "marigold-albedo"}
+    components = [c["component"] for c in record["components"]]
+    assert "huawei-bayerlab/marigold-v2-0" in components
+    assert "FLUX.2" in components   # the source picture's ancestry travels on
+
+
+def test_marigold_record_defaults_to_commercial_clear_without_a_source():
+    record = api.marigold_record("upload.png", "albedo", None)
+    assert record["license"]["classification"] == "commercial-clear"
+
+
+def test_start_marigold_replaces_the_front(tmp_path, monkeypatch):
+    front = tmp_path / "orc.png"
+    front.write_bytes(b"x")
+    seen = {}
+
+    class Thread:
+        def __init__(self, target, args, daemon):
+            seen["target"], seen["args"] = target, args
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(api.threading, "Thread", Thread)
+    job = api.start_marigold(front, "albedo")
+    api.MANAGER.finish(job)
+    assert job.replaces == front
+    assert job.output_path == front.with_name("orc_albedo.png")
+    assert seen["target"] is api.run_marigold
+
+
+def test_run_marigold_makes_the_albedo_the_new_front(tmp_path, monkeypatch):
+    """The de-lighted picture replaces the front, the old one is kept, and its record inherits
+    the source licence (the user's 2026-11-25 report: the preview did not change)."""
+    import io
+    from PIL import Image
+
+    front = tmp_path / "orc.png"
+    Image.new("RGB", (8, 8), (10, 20, 30)).save(front)
+    front.with_suffix(".provenance.json").write_text(json.dumps(
+        {"license": {"name": "Apache-2.0", "classification": "commercial-clear"}}))
+    manager = api.ImageJobManager(tmp_path)
+    job = manager.create("Marigold albedo", {"modality": "albedo"},
+                         output_path=front.with_name("orc_albedo.png"),
+                         references=[front], mode="marigold")
+    job.replaces = front
+    monkeypatch.setattr(api, "marigold_command", lambda *a: ["fake"])
+
+    class Fake:
+        pid = 12345
+
+        def __init__(self, *args, **kwargs):
+            self.stdout = io.BytesIO(b"[marigold-v2] albedo done\n")
+
+        def wait(self):
+            job.output_path.write_bytes(b"albedo")   # what marigold_v2_predict.py writes
+            return 0
+
+    monkeypatch.setattr(api.subprocess, "Popen", Fake)
+    api.run_marigold(job, manager)
+
+    assert job.status == "done"
+    assert front.read_bytes() == b"albedo"       # the albedo is the picture now
+    kept = list(tmp_path.glob("orc_prev_*.png"))
+    assert kept and kept[0].read_bytes() != b"albedo"   # the old front was kept
+    record = json.loads(front.with_suffix(".provenance.json").read_text())
+    assert record["model"]["id"] == "marigold-v2"
+    assert record["license"]["classification"] == "commercial-clear"   # inherited from source

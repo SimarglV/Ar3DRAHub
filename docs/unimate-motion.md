@@ -72,10 +72,9 @@ right in a prompt is followed unreliably.
 
 ## Licensing
 
-UniMate's code is MIT, but the released checkpoint (`Linzhan/UniMate`) is **CC BY-NC
-4.0**: motion generated with it is not for commercial use. Every run writes a
-`.provenance.json` beside the animated GLB with `classification: "research-only"` and the
-checkpoint's licence, alongside the source model's own licence record.
+MIT. Every run writes a `.provenance.json` beside the animated GLB with
+`classification: "commercial-clear"` and the licence, alongside the source model's own
+record.
 
 ## Setup
 

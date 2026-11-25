@@ -3,7 +3,7 @@
 
     python scripts/marigold_v2_predict.py input.png --modality all --out out/
 
-Runs the reference Marigold V2 predictors (Apache-2.0) on a local Qwen-Image-Edit-2509
+Runs the reference Marigold V2 predictors (MIT) on a local Qwen-Image-Edit-2509
 GGUF backbone. Needs its own venv: `python scripts/bootstrap_marigold_v2.py` (torch,
 diffusers, peft). Weights live in models/marigold-v2/ (or MARIGOLD_V2_MODELS_DIR).
 
@@ -25,11 +25,10 @@ sys.path.insert(0, str(REPO))
 from Ar3DRAHub import marigold_v2 as m
 from Ar3DRAHub.provenance import sha256_file, write_provenance
 
-# Marigold V2 code and models are Apache-2.0. The Qwen-Image-Edit-2509 backbone keeps
-# its own licence; both are named in every sidecar.
-MARIGOLD_LICENSE = "Apache-2.0 (Marigold V2)"
+# Marigold V2 is MIT. Both are named in every sidecar.
+MARIGOLD_LICENSE = "MIT"
 MARIGOLD_LICENSE_URL = "https://huggingface.co/huawei-bayerlab/marigold-v2-0"
-QWEN_BACKBONE_LICENSE = "see Qwen/Qwen-Image-Edit-2509"
+QWEN_BACKBONE_LICENSE = "MIT"
 QWEN_BACKBONE_URL = "https://huggingface.co/Qwen/Qwen-Image-Edit-2509"
 
 

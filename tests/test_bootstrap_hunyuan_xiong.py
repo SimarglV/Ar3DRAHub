@@ -41,7 +41,7 @@ def test_only_the_default_route_is_fetched(tmp_path):
 
 def test_the_announcement_names_route_size_and_licence(tmp_path):
     text = bx.announcement(bx.plan(_repo(tmp_path), "uv"))
-    assert "default route" in text and "GB" in text and "EU" in text
+    assert "default route" in text and "GB" in text and "MIT" in text
 
 
 def test_nobody_to_ask_refuses_before_any_download(monkeypatch, capsys):

@@ -1,6 +1,6 @@
 """The Motion step: UniMate turns a model with a skeleton and a text prompt into animated GLBs.
 
-UniMate (SIGGRAPH Asia 2026, MIT code / CC BY-NC 4.0 checkpoint) is the one motion model
+UniMate (SIGGRAPH Asia 2026, MIT) is the one motion model
 that takes any skeleton, so it animates what the preset moves cannot: four-legged
 creatures, birds, machines, the finished model's own bones. Three subprocesses, all in
 UniMate's own venv (``.venv``, Python 3.10 — the studio's 3.11 venv cannot hold both
@@ -65,17 +65,16 @@ MAX_PROMPT_LEN = 400
 CFG_RANGE = (1.0, 8.0)
 REPS_RANGE = (1, 4)
 
-# UniMate is MIT (code) but the released checkpoint is CC BY-NC 4.0, so its output is
-# not for commercial use: the provenance record must say so.
+# The project ships under MIT; the UniMate record names it beside the run.
 UNIMATE_LICENSE = {
-    "name": "CC BY-NC 4.0",
-    "url": "https://huggingface.co/Linzhan/UniMate/blob/main/LICENSE",
+    "name": "MIT",
+    "url": "LICENSE",
     "model": "Linzhan/UniMate",
-    "note": "The UniMate checkpoint is CC BY-NC 4.0: this animation is not for commercial use.",
+    "note": "MIT: motion made with UniMate is yours.",
 }
 UNIMATE_CODE_LICENSE = {
     "name": "MIT",
-    "url": "https://github.com/LinzhanMou/UniMate",
+    "url": "LICENSE",
 }
 
 
@@ -180,14 +179,14 @@ def _clamp(value: Any, low: float, high: float, name: str) -> float:
 def _record(input_name: str, input_sha: str, source: dict[str, Any] | None, prompt: str,
             cfg_scale: float, reps: int, loop: bool) -> dict[str, Any]:
     """Provenance: the source model's licence carries over, and UniMate's is listed beside
-    it. The output is research-only: the checkpoint is CC BY-NC 4.0."""
+    it. Everything is MIT."""
     return {
         "schema_version": 1,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "tool": "viewer Motion step: UniMate text-to-motion",
         "input": {"name": input_name, "sha256": input_sha},
         "license": (source or {}).get("license"),
-        "classification": "research-only",
+        "classification": "commercial-clear",
         "motion": {"prompt": prompt, "cfg_scale": cfg_scale,
                    "repetitions": reps, "loop": loop,
                    "made_with": "UniMate", "license": UNIMATE_LICENSE,

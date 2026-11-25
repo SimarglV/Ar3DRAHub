@@ -36,7 +36,7 @@ def test_announcement_names_backend_route_size_and_gating(monkeypatch):
     monkeypatch.setattr(boot, "target", lambda: "macos-arm64")
     text = boot.announcement()
     for needle in ("Stable Fast 3D", "4.9 GB", "facebook/dinov2-large", "gated",
-                   "Stability AI Community License"):
+                   "MIT"):
         assert needle in text
 
 

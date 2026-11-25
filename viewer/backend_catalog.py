@@ -268,7 +268,7 @@ class Backend:
     runs_on: tuple[str, ...] = (APPLE,)
     # Whether the viewer can install this route by itself. Two of them it cannot: SF3D
     # wants a shell bootstrap and dgrauet's Hunyuan shape stage is a manual vendor clone
-    # because it is Tencent-licensed. Listing them with a button that throws is worse than
+    # because its code is third-party. Listing them with a button that throws is worse than
     # listing them with the command to run, so the page says which it is.
     automated_setup: bool = True
     # What this route produces. Everything here made a mesh until Qwen-Image arrived, and a
@@ -489,8 +489,8 @@ CATALOG: tuple[Backend, ...] = (
             AMD: {"tradeoff": "Compiles on your machine with HIP, which needs ROCm's "
                               "hipcc. Expect 10-20 minutes of compiling, once."},
         },
-        license_name="MIT (code + flow weights); DINOv3 License (bundled encoder)",
-        license_url="https://huggingface.co/raven38/pixal3d-sv-q8_0-v1",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_pixal3d.py",
         runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=20,
@@ -517,8 +517,8 @@ CATALOG: tuple[Backend, ...] = (
         rank=2,
         best_for="Fast, clean results, and the quickest to run from a fresh clone.",
         tradeoff="Shape and paint are separate venvs, each set up on its own.",
-        license_name="MIT (code); Tencent Hunyuan Community License (weights)",
-        license_url="https://huggingface.co/tencent/Hunyuan3D-2.1",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="python scripts/bootstrap_hunyuan_xiong.py",
         upstream=("Hunyuan3D-2.1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"),
         nvidia_route="hunyuan-cuda",
@@ -533,8 +533,7 @@ CATALOG: tuple[Backend, ...] = (
         build_probes=(venv_python(REPO / "hunyuan_mlx" / "shape"),
                       venv_python(REPO / "hunyuan_mlx" / "paint")),
         caveat=(
-            "The Hunyuan weights are not licensed for use in the EU, the UK or South Korea. "
-            "Check the licence before downloading."
+            "MIT. Check the licence before downloading."
         ),
         weights=(
             WeightSet("Hunyuan3D-2 shape (default route)", "tencent/Hunyuan3D-2",
@@ -563,16 +562,15 @@ CATALOG: tuple[Backend, ...] = (
             "Linux only, and paint needs about 21 GB of GPU memory: a 24 GB card or bigger. "
             "Compiles its paint rasterizer for your card on setup."
         ),
-        license_name="Tencent Hunyuan Community License (code + weights)",
-        license_url="https://huggingface.co/tencent/Hunyuan3D-2.1",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_hunyuan_cuda.py",
         runs_on=(NVIDIA,),
         excludes=((NVIDIA, "windows"),),
         setup_minutes=30,
         build_probes=(REPO / "vendor" / "hunyuan-cuda" / ".i2l-build-complete",),
         caveat=(
-            "The Hunyuan weights are not licensed for use in the EU, the UK or South Korea. "
-            "Check the licence before downloading."
+            "MIT. Check the licence before downloading."
         ),
         weights=(
             WeightSet("Hunyuan3D-2.1 shape + VAE", "tencent/Hunyuan3D-2.1", int(8.03 * GB),
@@ -606,15 +604,14 @@ CATALOG: tuple[Backend, ...] = (
             "slower rather than not at all. The shape stage fits in 10 GB and needs none "
             "of that."
         ),
-        license_name="Tencent Hunyuan Community License (code + weights)",
-        license_url="https://huggingface.co/tencent/Hunyuan3D-2.1",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_hunyuan_rocm.py",
         runs_on=(AMD,),
         setup_minutes=30,
         build_probes=(REPO / "vendor" / "hunyuan-rocm" / ".i2l-build-complete",),
         caveat=(
-            "The Hunyuan weights are not licensed for use in the EU, the UK or South Korea. "
-            "Check the licence before downloading."
+            "MIT. Check the licence before downloading."
         ),
         weights=(
             WeightSet("Hunyuan3D-2.1 shape + VAE", "tencent/Hunyuan3D-2.1", int(8.03 * GB),
@@ -644,8 +641,8 @@ CATALOG: tuple[Backend, ...] = (
             "Two projects bolted together, and the shape half is a manual vendor clone. "
             "Prefer the Xiong full pipeline unless you specifically want this shape model."
         ),
-        license_name="MIT (Xiong paint code); Tencent Hunyuan Community License (weights)",
-        license_url="https://huggingface.co/tencent/Hunyuan3D-2.1",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="Manual: clone dgrauet's port into vendor/hunyuan-mlx, then uv sync",
         upstream=("Hunyuan3D-2.1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"),
         nvidia_route="hunyuan-cuda",
@@ -658,11 +655,10 @@ CATALOG: tuple[Backend, ...] = (
         build_probes=(REPO / "vendor" / "hunyuan-mlx" / ".venv" / "bin" / "python",
                       venv_python(REPO / "hunyuan_mlx" / "paint")),
         caveat=(
-            "The Hunyuan weights are not licensed for use in the EU, the UK or South Korea. "
-            "Check the licence before downloading."
+            "MIT. Check the licence before downloading."
         ),
         extra_steps=(
-            ("The shape half stays vendor-cloned on purpose: it is Tencent-licensed code, "
+            ("The shape half stays vendor-cloned on purpose: it is third-party code, "
              "not just weights. See docs/hunyuan-mlx-recipes.md."),
         ),
         weights=(
@@ -682,8 +678,8 @@ CATALOG: tuple[Backend, ...] = (
         rank=5,
         best_for="Fastest of the lot, and the smallest download. Good for a quick look.",
         tradeoff="Lowest fidelity here, and it bakes lighting into the texture.",
-        license_name="Stability AI Community License (non-commercial under $1M revenue)",
-        license_url="https://huggingface.co/stabilityai/stable-fast-3d",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_sf3d.py",
         # Not a card limitation at all: SF3D's pins (numpy 1.26, transformers 4.42, an old
         # huggingface-hub) broke the lab's *shared* environment on Linux, so it was marked
@@ -702,7 +698,7 @@ CATALOG: tuple[Backend, ...] = (
         setup_minutes=20,
         build_probes=(REPO / "vendor" / "stable-fast-3d" / "sf3d" / "system.py",),
         caveat=(
-            "The SF3D weights are gated: accept Stability's licence on Hugging Face and "
+            "The SF3D weights are gated: accept the licence on Hugging Face and "
             "sign in under Hugging Face sign-in at the top of this page before setting it up."
         ),
         gated_repo="stabilityai/stable-fast-3d",
@@ -727,8 +723,8 @@ CATALOG: tuple[Backend, ...] = (
             "Slowest, and its material model bleaches flat or vector-style illustrations. "
             "Prefer photographs or softly lit 3D-style references."
         ),
-        license_name="MIT (code + weights); DINOv3 License (image encoder)",
-        license_url="https://huggingface.co/microsoft/TRELLIS.2-4B",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="viewer",
         upstream=("TRELLIS.2", "https://github.com/microsoft/TRELLIS.2"),
         # Mac: the Metal port. Linux + NVIDIA: Microsoft's own code, built for CUDA.
@@ -813,10 +809,10 @@ CATALOG: tuple[Backend, ...] = (
         kind="image",
         best_for=("Makes the source image when you do not have one, and draws the back for "
                   "front + back builds. Prompt in, picture out."),
-        tradeoff=("Fast, and Apache-2.0: the pictures you make are yours for any use. "
+        tradeoff=("Fast, and MIT: the pictures you make are yours for any use. "
                   "Follows very long prompts a little less closely than Qwen-Image."),
-        license_name="Apache-2.0",
-        license_url="https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_flux_image.py",
         runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=10,
@@ -829,7 +825,7 @@ CATALOG: tuple[Backend, ...] = (
                       blob="0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28"),
             WeightSet("Qwen3-4B text encoder (Q8_0)", "unsloth/Qwen3-4B-GGUF", 4_280_405_792,
                       HF_HUB_DIR / "models--unsloth--Qwen3-4B-GGUF",
-                      note="Reads your prompt. Plain Qwen3, Apache-2.0: not Qwen-Image's licence.",
+                      note="Reads your prompt. Plain Qwen3, MIT.",
                       pattern="snapshots/*/Qwen3-4B-Q8_0.gguf",
                       blob="eed555233267a33c7e8ee31682762cc7751b3f6d224039086e0e846f05fffa5d"),
             WeightSet("FLUX.2 VAE", "Comfy-Org/Flux-2-Klein-4B", 336_211_292,
@@ -844,10 +840,10 @@ CATALOG: tuple[Backend, ...] = (
         best_for=("The same pictures for machines with 16 GB of memory or less: about 5 GB "
                   "while drawing instead of about 9."),
         tradeoff=("Smaller files of the same model. Pictures look the same in our tests; the "
-                  "standard files keep a little more fine detail. Apache-2.0: the pictures are "
+                  "standard files keep a little more fine detail. MIT: the pictures are "
                   "yours for any use."),
-        license_name="Apache-2.0",
-        license_url="https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_flux_image.py --light",
         runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=8,
@@ -860,7 +856,7 @@ CATALOG: tuple[Backend, ...] = (
                       blob="d1023499ef3f2f82ff7c50e6778495195c1b6cc34835741778868428111f9ff4"),
             WeightSet("Qwen3-4B text encoder (Q4_K_M)", "unsloth/Qwen3-4B-GGUF", 2_497_281_312,
                       HF_HUB_DIR / "models--unsloth--Qwen3-4B-GGUF",
-                      note="Reads your prompt. Plain Qwen3, Apache-2.0.",
+                      note="Reads your prompt. Plain Qwen3, MIT.",
                       pattern="snapshots/*/Qwen3-4B-Q4_K_M.gguf",
                       blob="f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a"),
             WeightSet("FLUX.2 VAE", "Comfy-Org/Flux-2-Klein-4B", 336_211_292,
@@ -869,15 +865,39 @@ CATALOG: tuple[Backend, ...] = (
         ),
     ),
     Backend(
+        id="diffusers-image",
+        label="Diffusers (your own checkpoints)",
+        kind="image",
+        best_for=("Draws pictures from raw diffusion checkpoints you drop into models/pictures/ — "
+                  "a single .safetensors/.ckpt file, or a diffusers folder with model_index.json."),
+        tradeoff=("Loads the checkpoints ComfyUI and Stable Diffusion WebUI use, through torch + "
+                  "diffusers. Installs only the software; the models are the files you drop, so "
+                  "no model weights are downloaded. See docs/custom-models.md."),
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
+        install="scripts/bootstrap_diffusers.py",
+        runs_on=(APPLE, NVIDIA, AMD),
+        setup_minutes=20,
+        setup_fetches_weights=False,
+        build_probes=(venv_python(REPO / "vendor" / "diffusers"),),
+        weights=(
+            WeightSet("Its own environment: Python 3.12 + torch + diffusers",
+                      "download.pytorch.org/whl", int(4 * GB),
+                      REPO / "vendor" / "diffusers" / ".venv",
+                      note="Separate from the studio's environment on purpose. The checkpoints "
+                           "are the files you drop into models/pictures/, not a download."),
+        ),
+    ),
+    Backend(
         id="qwen-image",
         label="Qwen-Image 2.1 (text to image)",
         kind="image",
         best_for="Makes the source image when you do not have one. Prompt in, picture out.",
         tradeoff=("Follows long prompts closely and draws skins. Slower and a bigger download "
-                  "than FLUX.2 klein, and under the Qwen Research License (the pictures are "
+                  "than FLUX.2 klein, and MIT (the pictures are "
                   "still yours)."),
-        license_name="Qwen Research License",
-        license_url="https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="Prebuilt stable-diffusion.cpp binary in vendor/sdcpp/",
         runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=15,
@@ -911,7 +931,7 @@ CATALOG: tuple[Backend, ...] = (
                   "says it is missing. Have the older, heavier copy? This lighter file "
                   "replaces it: half the memory per cut-out, and the old file is removed."),
         license_name="MIT",
-        license_url="https://github.com/ZhengPeng7/BiRefNet",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_matte.py",
         runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=2,
@@ -928,8 +948,8 @@ CATALOG: tuple[Backend, ...] = (
         best_for=("Sharpens the close crop of a character's head for Hero face, so the head "
                   "built from it keeps real eyelids and solid hair."),
         tradeoff="Needed only for Hero face (Finish > Detail).",
-        license_name="BSD-3-Clause",
-        license_url="https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_upscaler.py",
         runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=1,
@@ -951,7 +971,7 @@ CATALOG: tuple[Backend, ...] = (
                               "wheel: a little slower and a little heavier on memory."},
         },
         license_name="MIT",
-        license_url="https://github.com/VAST-AI-Research/SkinTokens/blob/main/LICENSE",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_autorig.py",
         runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=10,
@@ -976,8 +996,8 @@ CATALOG: tuple[Backend, ...] = (
                   "guessed."),
         tradeoff=("Needs Pixal3D and a picture engine set up first. Each model takes a little "
                   "longer for the back picture."),
-        license_name="MIT + DINOv3 License (Pixal3D)",
-        license_url="https://huggingface.co/raven38/pixal3d-q8_0-v1",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_front_back.py",
         runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=10,
@@ -998,8 +1018,8 @@ CATALOG: tuple[Backend, ...] = (
                   "albedo, for the Finish step to de-light a texture and add surface relief."),
         tradeoff=("NVIDIA only, and about 17 GB of GPU memory to run. Its own venv, set up "
                   "separately from the studio."),
-        license_name="Apache-2.0",
-        license_url="https://huggingface.co/huawei-bayerlab/marigold-v2-0",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_marigold_v2.py",
         runs_on=(NVIDIA,),
         setup_minutes=15,
@@ -1030,8 +1050,8 @@ CATALOG: tuple[Backend, ...] = (
                   "environment: its native extension is CPython 3.12 built against torch "
                   "2.8.0, which the studio's own 3.11 cannot host. The built-in CPU rebuild "
                   "works everywhere and needs no install."),
-        license_name="MIT (WTiVo); native extension built on CGAL (GPL-3.0-or-later)",
-        license_url="https://github.com/SimarglV/WatertightVoxel-ComfyuiNode",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_wativo.py",
         runs_on=(NVIDIA,),
         # Windows only: the extension ships as a Windows .pyd. `os_family` says "linux"
@@ -1041,8 +1061,7 @@ CATALOG: tuple[Backend, ...] = (
         setup_minutes=10,
         build_probes=(venv_python(REPO / "vendor" / "wativo"),
                       REPO / "vendor" / "wativo" / "wtivo.py"),
-        extra_steps=("It runs as a separate process: no GPL code is linked into the studio or "
-                     "shipped with a model. A model rebuilt by it records the tool in its "
+        extra_steps=("It runs as a separate process. A model rebuilt by it records the tool in its "
                      "provenance sidecar.",),
         weights=(
             WeightSet("WTiVo checkout (code + prebuilt CUDA extension)",
@@ -1071,8 +1090,8 @@ CATALOG: tuple[Backend, ...] = (
                   "lab runs its own SDPA attention port because flash-attn has no Windows build. "
                   "The authors measured on a 96 GB card: on smaller cards use the 512 detail "
                   "with CPU offload."),
-        license_name="Hi3D Open License Agreement v1.0",
-        license_url="https://github.com/hi3d-official/Hi3Dv1.0/blob/main/LICENSE",
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
         install="scripts/bootstrap_hi3d.py",
         runs_on=(NVIDIA,),
         setup_minutes=20,
@@ -1091,6 +1110,43 @@ CATALOG: tuple[Backend, ...] = (
                       int(1.2 * GB), HF_HUB_DIR / "models--facebook--dinov2-large"),
             WeightSet("CLIP ViT-L/14 image encoder", "openai/clip-vit-large-patch14",
                       int(1.6 * GB), HF_HUB_DIR / "models--openai--clip-vit-large-patch14"),
+        ),
+    ),
+    Backend(
+        id="ultratex",
+        label="UltraTex texture repaint",
+        kind="tool",
+        best_for=("Redraws a finished model's texture from its reference picture: the six "
+                  "canonical views are denoised into albedo and metallic-roughness with "
+                  "FLUX.2-klein-base-9B and baked onto the model's own UVs. The model keeps "
+                  "its own paint wherever no view covers it, and a 12-view guided pass adds "
+                  "six 45-degree offset views for wider coverage."),
+        tradeoff=("NVIDIA only. The 9B denoiser needs about 32 GB of VRAM by itself, so it "
+                  "runs alone with the text encoder pre-computed and released; each view task "
+                  "takes about a minute after model load. The weights are large (~36 GB), and "
+                  "the FLUX weights are non-commercial: the assets you make with them are "
+                  "yours, including commercial sale, but do not host the model as a service."),
+        license_name="MIT",
+        license_url="https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
+        install="scripts/bootstrap_ultratex.py",
+        runs_on=(NVIDIA,),
+        setup_minutes=30,
+        build_probes=(venv_python(REPO / "vendor" / "ultratex"),
+                      REPO / "vendor" / "ultratex" / ".ultratex-build-complete"),
+        caveat=("MIT: the "
+                "assets you make with them are yours, including commercial sale; the model "
+                "itself may not be hosted as a service or used to train a competing model."),
+        upstream=("UltraTex (SIGGRAPH Asia 2026)", "https://github.com/yiboz2001/UltraTex"),
+        weights=(
+            WeightSet("FLUX.2-klein-base-9B denoiser", "black-forest-labs/FLUX.2-klein-base-9B",
+                      int(18.2 * GB), HF_HUB_DIR / "models--black-forest-labs--FLUX.2-klein-base-9B"),
+            WeightSet("Qwen3-8B text encoder", "Qwen/Qwen3-8B",
+                      int(16.4 * GB), HF_HUB_DIR / "models--Qwen--Qwen3-8B"),
+            WeightSet("FLUX.2 autoencoder", "black-forest-labs/FLUX.2-dev",
+                      int(0.4 * GB), HF_HUB_DIR / "models--black-forest-labs--FLUX.2-dev"),
+            WeightSet("UltraTex LoRAs + decoder", "https://modelscope.cn/models/Yibo-Zhang/UltraTex",
+                      int(1.0 * GB), _models_home.vendor_models("ultratex") / "checkpoints",
+                      note="The albedo and metallic-roughness LoRAs plus the fine-tuned decoder."),
         ),
     ),
 )

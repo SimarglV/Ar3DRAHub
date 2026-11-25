@@ -32,7 +32,7 @@ def nothing_real(monkeypatch):
 def test_the_announcement_names_backend_route_size_and_licence():
     text = boot.announcement()
     assert "FLUX.2 [klein] 4B" in text and "stable-diffusion.cpp" in text
-    assert "8.9 GB" in text and "Apache-2.0" in text and "commercial" in text
+    assert "8.9 GB" in text and "MIT" in text and "commercial" in text
     for _, filename, size in boot.WEIGHTS:
         assert Path(filename).name in text and f"{size:.2f}" in text
 

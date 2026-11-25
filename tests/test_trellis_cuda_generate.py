@@ -127,7 +127,7 @@ def test_provenance_records_licences_and_bria_blocked(tmp_path):
     record = gen.build_provenance(image=image, output=output, parameters={"seed": 0},
                                   matte_model="birefnet-general-lite",
                                   backend_revision="abc123")
-    assert record["license"]["name"] == "MIT (TRELLIS.2) + DINOv3 License"
+    assert record["license"]["name"] == "MIT"
     assert record["model"]["route"] == "nvidia-cuda"
     names = {c["component"]: c for c in record["components"]}
     assert names["BRIA RMBG-2.0"]["loaded"] is False

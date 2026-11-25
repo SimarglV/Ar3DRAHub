@@ -22,9 +22,8 @@ it reports no device at all.
 Then the **weights**, about 4.9 GB: SF3D itself and DINOv2-large, which SF3D would otherwise
 fetch unannounced on its first run.
 
-**Licence:** the SF3D weights are gated. Accept Stability's licence at
-https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login` first. They are
-free under $1M annual revenue and need a commercial licence above that.
+**Licence:** the SF3D weights are gated. Accept the licence at
+https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login` first.
 
 `AGENTS.md`: a download path must name the backend, name the route, state the size, and
 require an affirmative answer. This prints all of that and stops, unless `--yes` is given

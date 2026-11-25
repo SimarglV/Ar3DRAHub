@@ -65,6 +65,7 @@ STUDIO_ONLY = {
     "api/generate": "via create / continue_asset", "api/finish": "via create / continue_asset",
     "api/props": "via create / continue_asset", "api/image": "via create / continue_asset",
     "api/image/back": "via create / continue_asset",
+    "api/image/side": "via create (sides=True)",
     "api/animate/rig": "via create / continue_asset",
     "api/animate/rig-human": "a person places the joints by hand in the Steps panel",
     "api/animate/play": "via create / continue_asset", "api/motion": "via create / continue_asset",
@@ -382,15 +383,15 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "try_off_when": "a feature shows up twice (a ghost eye) or slides off its place, often on a turned head."},
     "marigold": {
         "step": "finished", "type": "bool", "default": False,
-        "what": "After Finish, Marigold V2 de-lights the front texture straight from the picture (surface normals are a separate opt-in).",
+        "what": "After Finish, Marigold V2 de-lights the front texture straight from the picture (surface normals are a separate opt-in). With the UltraTex repaint it runs first, so the generated paint is never de-lit.",
         "try_off_when": None},
     "marigold_normals": {
         "step": "finished", "type": "bool", "default": False,
-        "what": "Marigold also bakes a surface normal map (on top of de-lighting). Off by default: de-light only.",
+        "what": "Marigold also bakes a surface normal map (on top of de-lighting). Off by default: de-light only. Needs Marigold itself on.",
         "try_off_when": None},
     "photo_fade_normals": {
         "step": "finished", "type": "bool", "default": False,
-        "what": "Pixel Match flattens the baked normal map where it paints, since the photo carries its own shading there. Off by default: the full normal relief is kept.",
+        "what": "Pixel Match flattens the baked normal map where it paints, since the photo carries its own shading there. Off by default: the full normal relief is kept. Needs Pixel Match on.",
         "try_off_when": None},
     "hi3d": {
         "step": "finished", "type": "bool", "default": False,
@@ -403,6 +404,16 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "step": "finished", "type": "bool", "default": False,
         "what": "With hi3d: transfer the original texture onto the refined mesh, then Detail, Pixel Match and Marigold run as usual. Front details may drift slightly.",
         "try_off_when": None},
+    "texture": {
+        "step": "finished", "type": "str", "choices": ["keep", "ultratex"], "default": "keep",
+        "what": "After Finish, repaint the model's texture from its picture with UltraTex (FLUX.2-klein-base-9B): the six canonical views are denoised into albedo and metallic-roughness and baked onto the mesh's own UVs. NVIDIA only; needs the UltraTex setup (about 36 GB of weights) and takes tens of minutes. 'keep' leaves the model's own paint.",
+        "why_it_is_not_a_warning": "The texture is the model's own paint, replaced only where the generated views cover it."},
+    "ultratex_steps": {
+        "step": "finished", "type": "int", "choices": [4, 8, 25], "default": 4,
+        "what": "With texture=ultratex: how many denoising steps per view task. 4 is fast, 8 better, 25 the model's full quality (and slowest)."},
+    "ultratex_guided": {
+        "step": "finished", "type": "bool", "default": False,
+        "what": "With texture=ultratex: the 12-view guided pass -- a second albedo run over six 45-degree offset views (four diagonal sides and two 45-degree elevated), baked together with the canonical six so more of the mesh takes the generated paint. Costs one extra albedo generation."},
     "watertight": {
         "step": "finished", "type": "bool", "default": False,
         "what": "After Finish, rebuild the model as one closed solid: the hairline gaps are closed and every loose piece is merged into a single body, ready for a slicer, a Boolean or a physics engine. It resamples the surface, so details smaller than a voxel are smoothed away, and the extra model has no texture. The finished model is kept as it is beside it.",
@@ -412,7 +423,7 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "what": "With watertight: how many voxels span the model's longest side. Higher keeps more detail and costs more time and memory on the CPU; 300 is a few minutes."},
     "watertight_tool": {
         "step": "finished", "type": "str", "choices": ["own", "external"], "default": "own",
-        "what": "With watertight: which engine rebuilds. 'own' is this repository's MIT module (CPU, a few minutes). 'external' runs an installed WTiVo instead -- much faster, because it runs on the GPU, and the sidecar records that a GPL tool was in the chain.",
+        "what": "With watertight: which engine rebuilds. 'own' is this repository's MIT module (CPU, a few minutes). 'external' runs an installed WTiVo instead -- much faster, because it runs on the GPU, and the sidecar records the tool in the chain.",
         "why_it_is_not_a_warning": "The result keeps the input's licence either way; this is a speed choice."},
     "wativo": {
         "step": "finished", "type": "bool", "default": False,
@@ -446,7 +457,7 @@ ADVANCED: dict[str, dict[str, Any]] = {
 
 # Ready-made sets of settings, tuned to how much video memory (VRAM) and RAM a machine has.
 # The definitions live in Ar3DRAHub/presets.py, shared with the studio's Create sheet.
-from Ar3DRAHub.presets import PRESETS
+from Ar3DRAHub.presets import FINISH_KEYS, PRESETS
 
 
 def apply_preset(preset: str | None, *, picture_engine: str | None = None,
@@ -469,8 +480,20 @@ def apply_preset(preset: str | None, *, picture_engine: str | None = None,
         motion_repetitions = chosen.get("motion_repetitions")
     if motion_cfg_scale is None:
         motion_cfg_scale = chosen.get("motion_cfg_scale")
-    if chosen.get("texture_size") is not None and "texture_size" not in (advanced or {}):
-        advanced = dict(advanced or {}, texture_size=chosen["texture_size"])
+    # Every finish knob the preset turns on becomes a default; an advanced value the
+    # caller passed explicitly still wins, key by key. False values stay out: the
+    # server's own defaults are already off, and a preset that leaves an extra off
+    # should not fill the plan with "marigold: false" noise. The texture trio only
+    # travels when the preset turns UltraTex on.
+    preset_advanced = {
+        key: chosen[key] for key in (*FINISH_KEYS, "texture_size") if chosen.get(key)
+    }
+    if not preset_advanced.get("hi3d"):
+        preset_advanced.pop("hi3d_resolution", None)   # meaningless without the refine
+    if preset_advanced.get("texture") != "ultratex":
+        for key in ("texture", "ultratex_steps", "ultratex_guided"):
+            preset_advanced.pop(key, None)
+    advanced = {**preset_advanced, **(advanced or {})}
     return picture_engine, front_and_back, finish_detail, motion_repetitions, motion_cfg_scale, advanced
 
 
@@ -517,6 +540,11 @@ def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool
         finish["hi3d_resolution"] = adv["hi3d_resolution"]
         if adv["hi3d_texture"]:
             finish["hi3d_texture"] = True
+    if adv["texture"]:        # a string default reads as None when unset: the studio's
+        finish["texture"] = adv["texture"]      # own default fills it, like watertight_tool
+        finish["ultratex_steps"] = adv["ultratex_steps"]
+        if adv["ultratex_guided"]:
+            finish["ultratex_guided"] = True
     if adv["watertight"]:
         finish["watertight"] = True
         finish["watertight_across"] = adv["watertight_across"]
@@ -545,10 +573,12 @@ def options() -> dict[str, Any]:
             "want": "picture | prop | set | character (create only).",
             "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
             "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
+            "sides": "create only: also draw the left and right views, so the model builds from four (the "
+                     "canonical Pixal3D turntable). Implies front_and_back; Pixal3D only.",
             "back_image_path": "create only: your own back view to go with image_path; Pixal3D builds from both.",
-            "picture_engine": "create only: flux (FLUX.2 klein, Apache-2.0, fast) | flux-light (the same model "
+            "picture_engine": "create only: flux (FLUX.2 klein, MIT, fast) | flux-light (the same model "
                               "in smaller files, about 5 GB of memory instead of about 9; suggested on machines "
-                              "with 16 GB or less) | qwen (Qwen-Image, Qwen Research License, follows long prompts "
+                              "with 16 GB or less) | qwen (Qwen-Image, MIT, follows long prompts "
                               "more closely). Default: the suggested one for this machine that is installed.",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
             "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; takes much longer than other details; needs a Pixal3D model made from a picture) | a count 1000-200000 | "
@@ -814,7 +844,8 @@ def bind_status(studio: Studio, *, job_id: str, wait_seconds: int = 0,
 
 def create(studio: Studio, *, want: str, description: str = "", image_path: str | None = None,
            model_path: str | None = None, stop_after_step: str | None = None, engine: str | None = None,
-           front_and_back: bool | None = None, move: str | None = None, add_wording: bool = True,
+           front_and_back: bool | None = None, sides: bool = False, move: str | None = None,
+           add_wording: bool = True,
            motion_prompt: str | None = None, motion_repetitions: int | None = None,
            motion_cfg_scale: float | None = None, motion_loop: bool = False,
            finish_upload: bool = False, finish_detail: str | int | None = None,
@@ -843,6 +874,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
         raise StudioError(f"Engine {engine!r} isn't ready. Ready: {', '.join(e['id'] for e in engines) or 'none'}.")
     fb_ready = bool((catalog.get("front_back") or {}).get("ready"))
     front_back = fb_ready if front_and_back is None else front_and_back
+    if sides:
+        front_back = True   # four views includes the back
     if back_image_path:
         # your own back: nothing to draw, so only Pixal3D's multi-view weights are needed
         if not (catalog.get("front_back") or {}).get("shape_ready"):
@@ -852,16 +885,19 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
         if "pixal3d" not in {e["id"] for e in engines}:
             raise StudioError("A back picture needs Pixal3D, which isn't ready. install_backend sets it up.")
         engine, front_back = "pixal3d", False
+    if sides and back_image_path:
+        raise StudioError("sides=True draws the back, left and right; drop back_image_path for a four-view build.")
     if front_back and not fb_ready:
         raise StudioError("Front and back isn't installed. The studio's Setup page adds it.")
-    steps = stop_after(plan_for(have, want, finish_upload=finish_upload, front_back=front_back), stop_after_step)
+    steps = stop_after(plan_for(have, want, finish_upload=finish_upload, front_back=front_back,
+                                sides=sides), stop_after_step)
     if back_image_path and "model" not in steps:
         raise StudioError("A back picture is only used to build the 3D model: don't stop before it.")
     if adv["rig_from"] == "model" and "rigged" in steps:
         steps = [s for s in steps if s != "finished"]   # rig the raw model, as the studio's "skips Finish"
     engine = engine or (engines[0]["id"] if engines else None)
-    if "back" in steps and engine != "pixal3d":
-        steps = [s for s in steps if s != "back"]   # only Pixal3D builds from front and back
+    if engine != "pixal3d":
+        steps = [s for s in steps if s not in ("back", "left", "right")]   # only Pixal3D builds from views
     if "model" in steps and not engine:
         raise StudioError("No 3D engine is installed yet. list_engines shows them; install_backend sets one up.")
     if "animated" in steps:
@@ -1413,6 +1449,7 @@ def build_server(studio: Studio | None = None):
     @server.tool(name="create", structured_output=False)
     def tool_create(want: str, description: str = "", image_path: str | None = None, model_path: str | None = None,
                   stop_after: str | None = None, engine: str | None = None, front_and_back: bool | None = None,
+                  sides: bool = False,
                   move: str | None = None, add_wording: bool = True, motion_prompt: str | None = None,
                   motion_repetitions: int | None = None, motion_cfg_scale: float | None = None,
                   motion_loop: bool = False, finish_upload: bool = False,
@@ -1428,7 +1465,8 @@ def build_server(studio: Studio | None = None):
         Start from ONE of: description (an idea), image_path (a PNG/JPG on this machine) or model_path (a GLB).
         stop_after: end early after a step: picture, back, model, finished, split, rigged, animated or motion.
         engine: a ready 3D engine id (default: the best ready one). front_and_back: also draw a back
-        picture for a fuller model (default: on when installed). move: first animation (see list_moves).
+        picture for a fuller model (default: on when installed). sides: also draw the left and right,
+        so the model builds from four views (implies front_and_back; Pixal3D only). move: first animation (see list_moves).
         motion_prompt (want="motion"): one sentence in UniMate's style, starting with "An object".
         motion_repetitions: 1 to 4 samples to pick the best from (default 1). motion_cfg_scale: 1 to 8,
         how strongly the prompt is followed (default 3). motion_loop: crossfade the clip into itself.
@@ -1440,9 +1478,9 @@ def build_server(studio: Studio | None = None):
         1000 to 200000, or "full" (Pixel Match on the raw model: its own mesh untouched, often ~1M
         triangles; the sharpest look, for renders and stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.
-        picture_engine: who draws the picture from a description: "flux" (FLUX.2 klein, Apache-2.0, fast),
+        picture_engine: who draws the picture from a description: "flux" (FLUX.2 klein, MIT, fast),
             "flux-light" (the same model in smaller files: about 5 GB of memory instead of about 9, suggested
-            on machines with 16 GB or less) or "qwen" (Qwen-Image, Qwen Research License, follows long prompts
+            on machines with 16 GB or less) or "qwen" (Qwen-Image, MIT, follows long prompts
             more closely). Default: the suggested installed one for this machine. A back picture prefers the
             engine that drew the front.
         back_image_path: your own back view to go with image_path (same pose, size and framing, seen from
@@ -1452,7 +1490,7 @@ def build_server(studio: Studio | None = None):
         """
         return safe(lambda: create(studio, want=want, description=description, image_path=image_path,
                                    model_path=model_path, stop_after_step=stop_after, engine=engine,
-                                   front_and_back=front_and_back, move=move, add_wording=add_wording,
+                                   front_and_back=front_and_back, sides=sides, move=move, add_wording=add_wording,
                                    motion_prompt=motion_prompt, motion_repetitions=motion_repetitions,
                                    motion_cfg_scale=motion_cfg_scale, motion_loop=motion_loop,
                                    finish_upload=finish_upload, finish_detail=finish_detail,

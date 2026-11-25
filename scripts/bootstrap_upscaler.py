@@ -5,7 +5,7 @@
     python scripts/bootstrap_upscaler.py --yes    # non-interactive
     python scripts/bootstrap_upscaler.py --check  # exit 0 if installed, 1 if not
 
-One file, 67 MB, BSD-3-Clause, from the Real-ESRGAN project's own release, saved under
+One file, 67 MB, MIT, from the Real-ESRGAN project's own release, saved under
 vendor/realesrgan/. It runs in the project's own environment (Ar3DRAHub/upscale.py),
 so Hero no longer needs the multi-GB Hunyuan3D-MLX paint install for it. The file is kept
 only if its size matches the release and PyTorch reads the network's weights from it.
@@ -28,7 +28,7 @@ from Ar3DRAHub import upscale
 
 
 def announcement() -> str:
-    return (f"Hero face upscaler: Real-ESRGAN x4plus ({upscale.WEIGHTS_BYTES / 1e6:.0f} MB, BSD-3-Clause)\n"
+    return (f"Hero face upscaler: Real-ESRGAN x4plus ({upscale.WEIGHTS_BYTES / 1e6:.0f} MB, MIT)\n"
             f"  from   {upscale.WEIGHTS_URL}\n"
             f"  to     {upscale.WEIGHTS_FILE}")
 

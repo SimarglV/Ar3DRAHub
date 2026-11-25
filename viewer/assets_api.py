@@ -40,8 +40,9 @@ NOT_GENERATED = {"finish", "props", "images", "rig-rebind", "animate", "motion",
 STAGES = ("picture", "model", "finished", "rigged", "animated")
 INDEX_NAME = ".assets-index.json"
 UPLOAD_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}   # pictures Create keeps in images/uploads/
-# A front's back and its working files: the back, its reference, a redraw in progress, a replaced one.
-BACK_FILE = re.compile(r"__back(_reference|_new|_prev_[\d-]+|_brush_[a-z]+)?$")   # any brush working file
+# A front's back, left and right views and their working files: the view, its reference, a
+# redraw in progress, a replaced one, or a brush's working file.
+VIEW_FILE = re.compile(r"__(back|left|right)(_reference|_new|_prev_[\d-]+|_brush_[a-z]+)?$")
 # A brushed picture's working files sit beside it: `<picture>_new`, `<picture>_brush_mask` and so on.
 # Only hidden when that picture is there too, so an upload that merely ends in "_new" still shows.
 WORKING_FILE = re.compile(r"^(?P<base>.+?)(_new|_brush_[a-z]+)$")
@@ -49,7 +50,7 @@ WORKING_FILE = re.compile(r"^(?P<base>.+?)(_new|_brush_[a-z]+)$")
 
 def working_file(file: Path) -> bool:
     """A file the brush or a redraw writes while it works, not a picture of its own."""
-    if BACK_FILE.search(file.stem):
+    if VIEW_FILE.search(file.stem):
         return True
     match = WORKING_FILE.match(file.stem)
     return bool(match) and any(file.with_name(match["base"] + suffix).is_file() for suffix in UPLOAD_SUFFIXES)
@@ -523,6 +524,11 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             # Front + back: the drawn back sits beside its front as <front>__back.png.
             "back": rel(back) if picture and (back := picture["file"].with_name(
                 f"{picture['file'].stem}__back.png")).is_file() else None,
+            # Four views: the drawn sides sit beside the front the same way.
+            "left": rel(left) if picture and (left := picture["file"].with_name(
+                f"{picture['file'].stem}__left.png")).is_file() else None,
+            "right": rel(right) if picture and (right := picture["file"].with_name(
+                f"{picture['file'].stem}__right.png")).is_file() else None,
             "model": rel(model["file"]) if model else None,
             "finished": rel(fin["file"]) if fin else None,
             "pixel_match": fin["pixel_match"] if fin else None,
@@ -556,7 +562,7 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             "id": asset_id, "family": asset_id, "version": 1, "versions": 1,
             "name": friendly_name(rig["name"]), "kind": "character", "stage": "rigged",
             "picture": None, "prompt": None, "picture_settings": None, "picture_want": None,
-            "back": None, "model": None, "finished": None, "pixel_match": None,
+            "back": None, "left": None, "right": None, "model": None, "finished": None, "pixel_match": None,
             "rigged": rel(rig["file"]),
             "rig_dir": rel(rig["dir"]),
             "fits_moves": False, "facing": None,
@@ -574,7 +580,7 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             "id": asset_id, "family": asset_id, "version": 1, "versions": 1,
             "name": friendly_name(motion["stem"]), "kind": "character", "stage": "animated",
             "picture": None, "prompt": None, "picture_settings": None, "picture_want": None,
-            "back": None, "model": None, "finished": None, "pixel_match": None,
+            "back": None, "left": None, "right": None, "model": None, "finished": None, "pixel_match": None,
             "rigged": glb,
             "fits_moves": False, "facing": None,
             "clips": [{"name": friendly_name(motion["stem"]), "file": glb}],

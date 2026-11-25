@@ -93,7 +93,8 @@ def test_the_wativo_resolution_is_one_of_the_two_measured_points():
 def test_each_string_setting_carries_its_own_allowed_values():
     """The enum lives beside its key, not bolted to `watertight_tool`: a second string
     setting must never be validated against WTiVo's engine names."""
-    assert finish.STRING_SETTINGS == {"watertight_tool": ("own", "external")}
+    assert finish.STRING_SETTINGS == {"watertight_tool": ("own", "external"),
+                                      "texture": ("keep", "ultratex")}
     assert finish.CHOICE_SETTINGS == {"watertight_wativo_res": (512, 1536)}
 
 
@@ -121,6 +122,233 @@ def test_hi3d_settings_are_accepted():
     assert settings["hi3d"] is True
     assert settings["hi3d_resolution"] == 1024
     assert settings["hi3d_texture"] is True
+
+
+def test_hi3d_chain_settings_are_accepted():
+    settings = finish.normalise_settings({
+        "hi3d": True, "hi3d_cascade": False, "hi3d_remesh": False,
+        "hi3d_remesh_voxel": 0.001,
+    })
+    assert settings["hi3d_cascade"] is False
+    assert settings["hi3d_remesh"] is False
+    assert settings["hi3d_remesh_voxel"] == 0.001
+
+
+def test_ultratex_settings_are_accepted():
+    settings = finish.normalise_settings({
+        "texture": "ultratex", "ultratex_steps": 8, "ultratex_seed": 7,
+    })
+    assert settings["texture"] == "ultratex"
+    assert settings["ultratex_steps"] == 8
+    assert settings["ultratex_seed"] == 7
+
+
+def test_an_unknown_texture_choice_is_refused():
+    with pytest.raises(ValueError, match="texture"):
+        finish.normalise_settings({"texture": "photoshop"})
+
+
+def test_ultratex_is_dropped_off_nvidia():
+    kept = finish.fit_to_machine({"texture": "ultratex"}, platform=finish.NVIDIA)
+    assert kept["texture"] == "ultratex"
+    dropped = finish.fit_to_machine({"texture": "ultratex"}, platform=finish.APPLE)
+    assert dropped["texture"] == "keep"
+
+
+def test_an_ultratex_run_needs_the_picture():
+    job = finish.FinishJob("0" * 32, Path("/tmp/finish-job"))
+    assert finish.needed_inputs(job, {"texture": "ultratex"}) == \
+        [job.asset_path, job.image_path]
+
+
+def test_ultratex_skips_when_not_requested():
+    import finish_api
+
+    job = finish.FinishJob("0" * 32, Path("/tmp/finish-job"))
+    assert finish_api.run_ultratex(job) == (False, None)
+
+
+def test_ultratex_skips_with_a_note_when_not_ready(monkeypatch):
+    import finish_api
+
+    job = finish.FinishJob("0" * 32, Path("/tmp/finish-job"))
+    job.settings["texture"] = "ultratex"
+    monkeypatch.setattr(finish_api, "ultratex_readiness", lambda: (False, "no card"))
+    ran, note = finish_api.run_ultratex(job)
+    assert ran is False and "no card" in note
+
+
+def test_the_ultratex_stage_renders_denoises_and_bakes(monkeypatch, tmp_path):
+    """The stage runs the view render, both denoise tasks, the bake, and replaces the
+    worker's result with the textured GLB and its licence chain."""
+    import finish_api
+    from Ar3DRAHub import ultratex_backend
+
+    monkeypatch.setattr(finish_api, "ultratex_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "host_platform", lambda: finish_api.NVIDIA)
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"texture": "ultratex"})
+    job.result_glb.parent.mkdir(parents=True, exist_ok=True)
+    job.result_glb.write_bytes(valid_glb(generator="the worker"))
+
+    commands = []
+    tasks = []
+
+    def fake_worker(job_, command, phase, message, failure):
+        commands.append(command)
+        if Path(command[command.index("-u") + 1]).name == "ultratex_bake_views.py":
+            Path(command[5]).write_bytes(valid_glb(generator="the ultratex bake"))
+
+    monkeypatch.setattr(finish_api, "_run_worker_process", fake_worker)
+
+    def fake_generate(views_json, out_dir, options, log=None, on_process=None):
+        tasks.append(options.task)
+        canvas = Path(out_dir) / f"task-{options.task}" / f"c_{options.task}.png"
+        canvas.parent.mkdir(parents=True, exist_ok=True)
+        canvas.write_bytes(b"png")
+        return ultratex_backend.UltraTexResult(canvas.parent, canvas, options.task)
+
+    monkeypatch.setattr(ultratex_backend, "generate_ultratex", fake_generate)
+    ran, note = finish_api.run_ultratex(job)
+    assert (ran, note) == (True, None)
+    names = [Path(command[command.index("-u") + 1]).name for command in commands]
+    assert names == ["ultratex_views.py", "ultratex_bake_views.py"]
+    assert tasks == ["albedo", "mr"]
+    from glb_fixtures import read_glb
+
+    gltf = read_glb(job.result_glb.read_bytes())[0]
+    assert gltf["asset"]["generator"] == "the ultratex bake"   # the worker's GLB was replaced
+    sidecar = json.loads(job.result_glb.with_suffix(".provenance.json").read_text(
+        encoding="utf-8"))
+    assert sidecar["operation"] == "ultratex-texture"
+    name = sidecar["license"]["name"]
+    assert "MIT" in name
+
+
+def test_the_guided_stage_renders_twelve_views_and_bakes_both_canvases(monkeypatch, tmp_path):
+    """ultratex_guided adds the 45-degree pass: a second views render, a second
+    albedo denoise, and the bake receives both canvases."""
+    import finish_api
+    from Ar3DRAHub import ultratex_backend
+
+    monkeypatch.setattr(finish_api, "ultratex_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "host_platform", lambda: finish_api.NVIDIA)
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png",
+                         {"texture": "ultratex", "ultratex_guided": True})
+    job.result_glb.parent.mkdir(parents=True, exist_ok=True)
+    job.result_glb.write_bytes(valid_glb(generator="the worker"))
+
+    commands = []
+    tasks = []
+
+    def fake_worker(job_, command, phase, message, failure):
+        commands.append(command)
+        if Path(command[command.index("-u") + 1]).name == "ultratex_bake_views.py":
+            Path(command[5]).write_bytes(valid_glb(generator="the ultratex bake"))
+
+    monkeypatch.setattr(finish_api, "_run_worker_process", fake_worker)
+
+    def fake_generate(views_json, out_dir, options, log=None, on_process=None):
+        tasks.append(options.task)
+        canvas = Path(out_dir) / f"task-{options.task}" / f"c_{options.task}.png"
+        canvas.parent.mkdir(parents=True, exist_ok=True)
+        canvas.write_bytes(b"png")
+        return ultratex_backend.UltraTexResult(canvas.parent, canvas, options.task)
+
+    monkeypatch.setattr(ultratex_backend, "generate_ultratex", fake_generate)
+    ran, note = finish_api.run_ultratex(job)
+    assert (ran, note) == (True, None)
+
+    views_command = commands[0]
+    assert views_command[-1] == "--guided"          # the render ran in guided mode
+    assert tasks == ["albedo", "albedo", "mr"]      # the guided pass reuses the albedo task
+    bake_command = commands[-1]
+    assert "--guided" in bake_command
+    guided_canvas = Path(bake_command[bake_command.index("--guided") + 1])
+    assert guided_canvas.name == "c_albedo.png"     # the second albedo canvas
+    sidecar = json.loads(job.result_glb.with_suffix(".provenance.json").read_text(
+        encoding="utf-8"))
+    assert "12-view guided" in sidecar["component_records"][0]["purpose"]
+
+
+def test_the_coherence_guards_drop_sub_knobs_without_their_parent(monkeypatch):
+    monkeypatch.setattr(finish, "host_platform", lambda: finish.NVIDIA)
+    # Marigold normals ride with Marigold
+    assert finish.fit_to_machine({"marigold_normals": True})["marigold_normals"] is False
+    assert finish.fit_to_machine({"marigold": True, "marigold_normals": True})["marigold_normals"] is True
+    # fading normals where the photo painted needs the photo's paint
+    assert finish.fit_to_machine({"skip_photo": True, "photo_fade_normals": True})["photo_fade_normals"] is False
+    # a geometry-only Hi3D refine has no texture to repaint onto
+    assert finish.fit_to_machine({"hi3d": True, "texture": "ultratex"})["texture"] == "keep"
+    assert finish.fit_to_machine({"hi3d": True, "hi3d_texture": True,
+                                  "texture": "ultratex"})["texture"] == "ultratex"
+
+
+def test_marigold_runs_before_the_ultratex_repaint(tmp_path, monkeypatch):
+    """Marigold de-lights the photo paint first; the UltraTex repaint then paints on a
+    de-lit base and is never de-lit itself."""
+    import finish_api
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {})
+    job.image_path.parent.mkdir(parents=True, exist_ok=True)
+    job.image_path.write_bytes(b"png")
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+
+    class Worker:
+        pid = 3
+        returncode = 0
+        stdout = iter(["baking\n"])
+
+        def __init__(self, *args, **kwargs):
+            job.result_glb.parent.mkdir(parents=True, exist_ok=True)
+            job.result_glb.write_bytes(valid_glb(generator="the finish worker"))
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(finish_api.subprocess, "Popen", Worker)
+    order = []
+    monkeypatch.setattr(finish_api, "run_marigold",
+                        lambda job_: order.append("marigold") or (True, None))
+    monkeypatch.setattr(finish_api, "run_ultratex",
+                        lambda job_: order.append("ultratex") or (True, None))
+
+    finish_api.run_job(job, manager)
+    assert order == ["marigold", "ultratex"]
+    assert job.status == "done"
+
+
+def test_the_ultratex_stage_keeps_the_result_when_the_render_fails(monkeypatch, tmp_path):
+    import finish_api
+
+    monkeypatch.setattr(finish_api, "ultratex_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "host_platform", lambda: finish_api.NVIDIA)
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"texture": "ultratex"})
+    job.result_glb.parent.mkdir(parents=True, exist_ok=True)
+    job.result_glb.write_bytes(valid_glb(generator="the worker"))
+
+    def broken(job_, command, phase, message, failure):
+        raise RuntimeError("the render blew up")
+
+    monkeypatch.setattr(finish_api, "_run_worker_process", broken)
+    ran, note = finish_api.run_ultratex(job)
+    assert ran is False and "render blew up" in note
+    from glb_fixtures import read_glb
+
+    gltf = read_glb(job.result_glb.read_bytes())[0]
+    assert gltf["asset"]["generator"] == "the worker"          # kept as it was
+
+
+def test_hi3d_remesh_voxel_out_of_bounds_is_rejected():
+    with pytest.raises(ValueError, match="hi3d_remesh_voxel"):
+        finish.normalise_settings({"hi3d_remesh_voxel": 1.0})
 
 
 def test_hi3d_texture_without_hi3d_is_refused():
@@ -157,6 +385,102 @@ def test_a_hi3d_run_needs_the_picture():
     job = finish.FinishJob("0" * 32, Path("/tmp/finish-job"))
     assert finish.needed_inputs(job, {"hi3d": True}) == [job.asset_path, job.image_path]
     assert finish.needed_inputs(job, {"skip_photo": True, "skip_paint": True}) == [job.asset_path]
+
+
+def test_the_refine_stage_remeshes_and_passes_the_cascade(monkeypatch, tmp_path):
+    import finish_api
+    from Ar3DRAHub import hi3d_backend
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"hi3d": True, "hi3d_resolution": 1024})
+    job.image_path.parent.mkdir(parents=True, exist_ok=True)
+    job.image_path.write_bytes(b"png")
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+
+    remeshed = tmp_path / "remeshed.glb"
+    seen = {}
+
+    def fake_generate(image, coarse_mesh, output_dir, options, log=None, on_process=None):
+        seen["coarse"] = Path(coarse_mesh)
+        seen["cascade"] = options.cascade
+        seen["resolution"] = options.resolution
+        return hi3d_backend.Hi3DResult(remeshed, options.resolution)
+
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d", fake_generate)
+    monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "hi3d_remesh_stage", lambda job_: remeshed)
+    result = finish_api.refine_stage(job, "Hi3D: refining the geometry at {resolution}")
+    assert seen["coarse"] == remeshed
+    assert seen["cascade"] is True
+    assert seen["resolution"] == 1024
+    assert result.resolution == 1024
+
+
+def test_the_refine_stage_skips_the_remesh_when_asked(monkeypatch, tmp_path):
+    import finish_api
+    from Ar3DRAHub import hi3d_backend
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png", {"hi3d": True, "hi3d_remesh": False})
+    job.image_path.parent.mkdir(parents=True, exist_ok=True)
+    job.image_path.write_bytes(b"png")
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+
+    seen = {}
+
+    def fake_generate(image, coarse_mesh, output_dir, options, log=None, on_process=None):
+        seen["coarse"] = Path(coarse_mesh)
+        return hi3d_backend.Hi3DResult(seen["coarse"], 512)
+
+    monkeypatch.setattr(hi3d_backend, "generate_hi3d", fake_generate)
+    monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+
+    def no_remesh(job_):
+        raise AssertionError("the remesh stage must not run when hi3d_remesh is false")
+
+    monkeypatch.setattr(finish_api, "hi3d_remesh_stage", no_remesh)
+    finish_api.refine_stage(job, "Hi3D: refining the geometry at {resolution}")
+    assert seen["coarse"] == job.asset_path
+
+
+def test_the_hi3d_remesh_stage_runs_blender_twice(monkeypatch, tmp_path):
+    import finish_api
+
+    manager = finish_api.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    job = manager.create("knight.glb", b"glb", b"png",
+                         {"hi3d": True, "hi3d_remesh_voxel": 0.001})
+    job.asset_path.parent.mkdir(parents=True, exist_ok=True)
+    job.asset_path.write_bytes(b"glb")
+    monkeypatch.setattr(finish_api.blender_lookup, "find_blender",
+                        lambda: Path("/fake/blender.exe"))
+
+    commands = []
+
+    class FakeBlender:
+        pid = 1
+        returncode = 0
+        stdout = iter([])
+
+        def __init__(self, command, **kwargs):
+            commands.append(command)
+            target = Path(command[-2])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(valid_glb(generator="remesh"))
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(finish_api.subprocess, "Popen", FakeBlender)
+    result = finish_api.hi3d_remesh_stage(job)
+    assert len(commands) == 2
+    for command in commands:
+        assert command[command.index("--python") + 1].endswith("blender_voxel_remesh.py")
+        assert command[-1] == "0.001"
+    assert commands[1][-3] == commands[0][-2]      # the second pass eats the first's output
+    assert result == job.steps_dir / "hi3d_remesh2.glb"
+    assert job.events[-1]["phase"] == "hi3d-remesh"
 
 
 def test_the_command_carries_every_setting():
@@ -597,6 +921,17 @@ def test_capabilities_say_what_this_machine_can_do(tmp_path):
     assert "front exact" in nvidia["repaint_note"]
 
 
+def test_capabilities_report_the_ultratex_availability(tmp_path, monkeypatch):
+    exe = tmp_path / "blender"
+    exe.write_text("")
+    monkeypatch.setattr(finish, "ultratex_readiness", lambda: (True, None))
+    ready = finish.capabilities("nvidia", find=lambda: exe, version=lambda _: (5, 2))
+    assert ready["ultratex"] is True and ready["ultratex_note"] is None
+    monkeypatch.setattr(finish, "ultratex_readiness", lambda: (False, "needs the setup"))
+    missing = finish.capabilities("nvidia", find=lambda: exe, version=lambda _: (5, 2))
+    assert missing["ultratex"] is False and missing["ultratex_note"] == "needs the setup"
+
+
 def test_capabilities_explain_a_missing_or_old_blender(tmp_path):
     missing = finish.capabilities("nvidia", find=lambda: None, version=lambda _: None)
     assert not missing["ready"] and "blender.org" in missing["blender_problem"]
@@ -830,6 +1165,7 @@ def test_a_hi3d_run_lands_the_refined_mesh_as_the_result(tmp_path, monkeypatch):
 
     monkeypatch.setattr(hi3d_backend, "generate_hi3d", fake_generate)
     monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "hi3d_remesh_stage", lambda job_: job_.asset_path)
     finish_api.run_job(job, manager)
     assert seen["image"] == job.image_path and seen["coarse"] == job.asset_path
     assert seen["resolution"] == 512
@@ -848,7 +1184,7 @@ def test_a_hi3d_run_lands_the_refined_mesh_as_the_result(tmp_path, monkeypatch):
     assert record["hi3d"]["requested_resolution"] == 512
     sidecar = json.loads(job.result_glb.with_suffix(".provenance.json").read_text(encoding="utf-8"))
     assert sidecar["operation"] == "hi3d-refine"
-    assert "Hi3D" in sidecar["license"]["name"]
+    assert "MIT" in sidecar["license"]["name"]
 
 
 def test_a_hi3d_geometry_only_run_still_builds_the_watertight_extra(tmp_path, monkeypatch):
@@ -872,6 +1208,7 @@ def test_a_hi3d_geometry_only_run_still_builds_the_watertight_extra(tmp_path, mo
     monkeypatch.setattr(hi3d_backend, "generate_hi3d",
                         lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
     monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "hi3d_remesh_stage", lambda job_: job_.asset_path)
 
     rebuilt = job.directory / "steps" / "watertight.glb"
     seen = {}
@@ -912,6 +1249,7 @@ def test_a_hi3d_geometry_only_run_keeps_the_result_when_the_rebuild_fails(tmp_pa
     monkeypatch.setattr(hi3d_backend, "generate_hi3d",
                         lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
     monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "hi3d_remesh_stage", lambda job_: job_.asset_path)
 
     def broken(job_, source):
         raise RuntimeError("the watertight rebuild is not available here")
@@ -945,6 +1283,7 @@ def test_a_hi3d_run_records_the_rung_that_actually_made_the_mesh(tmp_path, monke
     monkeypatch.setattr(hi3d_backend, "generate_hi3d",
                         lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
     monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "hi3d_remesh_stage", lambda job_: job_.asset_path)
     finish_api.run_job(job, manager)
     record = json.loads(job.record_path.read_text(encoding="utf-8"))
     assert record["hi3d"]["resolution"] == 512
@@ -969,6 +1308,7 @@ def test_a_hi3d_run_still_honours_cancel_after_the_refine(tmp_path, monkeypatch)
     monkeypatch.setattr(hi3d_backend, "generate_hi3d",
                         lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
     monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "hi3d_remesh_stage", lambda job_: job_.asset_path)
     finish_api.run_job(job, manager)
     assert job.status == "cancelled"
 
@@ -994,6 +1334,7 @@ def test_a_hi3d_textured_run_falls_through_to_the_normal_worker(tmp_path, monkey
     monkeypatch.setattr(hi3d_backend, "generate_hi3d",
                         lambda *a, **k: hi3d_backend.Hi3DResult(refined, 512))
     monkeypatch.setattr(finish_api, "hi3d_readiness", lambda: (True, None))
+    monkeypatch.setattr(finish_api, "hi3d_remesh_stage", lambda job_: job_.asset_path)
 
     class Transfer:
         pid = 2
@@ -1188,6 +1529,12 @@ def _views(tmp_path: Path, files: list[str]) -> Path:
 def test_pixel_match_says_front_or_front_and_back_from_the_saved_views(tmp_path):
     two = _views(tmp_path, ["view_000.png", "view_180.png"])
     assert finish.pixel_match_result(True, two, {}) == "on (front + back)"
+    four = tmp_path / "four"
+    four.mkdir()
+    (four / "transforms.json").write_text(json.dumps({"frames": [
+        {"file_path": "view_000.png"}, {"file_path": "view_090.png"},
+        {"file_path": "view_180.png"}, {"file_path": "view_270.png"}]}))
+    assert finish.pixel_match_result(True, four, {}) == "on (4 views)"
     one = tmp_path / "one"
     one.mkdir()
     (one / "transforms.json").write_text(json.dumps({"frames": [{"file_path": "input.png"}]}))

@@ -63,7 +63,7 @@ FINISH_FLAGS = ["--atlas", "2048", "--angle", "89.0", "--voxel", "0.004", "--met
                 "--paint-steps", "15", "--paint-tex", "4096", "--texture-size", "2048", "--skip-paint"]
 #: What else touched the output; Pixal3D's own licence is copied from its run records.
 LICENCES = [
-    {"component": "Real-ESRGAN x4plus", "license": "BSD-3-Clause", "purpose": "head crop upscale"},
+    {"component": "Real-ESRGAN x4plus", "license": "MIT", "purpose": "head crop upscale"},
     {"component": "SkinTokens", "license": "MIT", "purpose": "throwaway rig to find the head; not in the output"},
 ]
 

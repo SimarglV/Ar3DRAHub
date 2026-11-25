@@ -45,6 +45,12 @@ GENERATED_ROOT = REPO / "output"
 WORKER = REPO / "scripts" / "retopo_repaint.py"
 # The optional Marigold de-light + normal-map pass, run on the finished model afterwards.
 MARIGOLD_FINISH = REPO / "scripts" / "marigold_finish.py"
+# The optional UltraTex texture stage: renders the six canonical views, denoises them
+# through FLUX.2-klein-base-9B with the UltraTex LoRAs, and bakes the result onto the
+# mesh's own UVs. NVIDIA only: its stack is torch cu128 with dense attention.
+ULTRAX_VENDOR = REPO / "vendor" / "ultratex"
+ULTRAX_VIEWS = REPO / "scripts" / "ultratex_views.py"
+ULTRAX_BAKE = REPO / "scripts" / "ultratex_bake_views.py"
 # The optional Hi3D geometry refinement: replaces the retopo worker entirely and produces
 # a geometry-only GLB (no textures, re-centred to unit radius). NVIDIA only.
 HI3D_VENDOR = REPO / "vendor" / "hi3d"
@@ -93,6 +99,9 @@ SETTING_BOUNDS: dict[str, tuple[float, float]] = {
     "paint_tex": (1024, 4096),
     "texture_size": (256, 4096),
     "hi3d_resolution": (512, 1536),
+    "hi3d_remesh_voxel": (0.0005, 0.05),
+    "ultratex_steps": (1, 50),
+    "ultratex_seed": (0, 2**31 - 1),
     "watertight_across": WATERTIGHT_ACROSS,
 }
 
@@ -105,18 +114,22 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "high_detail": False, "hero": False, "marigold": False,
     "marigold_normals": False, "photo_fade_normals": False,
     "hi3d": False, "hi3d_resolution": 512, "hi3d_texture": False,
+    "hi3d_cascade": True, "hi3d_remesh": True, "hi3d_remesh_voxel": 0.002,
+    "texture": "keep", "ultratex_steps": 4, "ultratex_seed": 42,
+    "ultratex_guided": False,
     "watertight": False, "watertight_across": 300, "watertight_tool": "own",
     "watertight_wativo_res": 512,
 }
 
 BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge",
                  "high_detail", "hero", "marigold", "marigold_normals", "photo_fade_normals", "hi3d", "hi3d_texture",
-                 "watertight"}
+                 "hi3d_cascade", "hi3d_remesh", "watertight", "ultratex_guided"}
 
 # Each string setting maps to the values it accepts, so a new enum validates against its
 # own list instead of someone else's.
 WATERTIGHT_TOOLS = ("own", "external")
-STRING_SETTINGS = {"watertight_tool": WATERTIGHT_TOOLS}
+TEXTURE_CHOICES = ("keep", "ultratex")
+STRING_SETTINGS = {"watertight_tool": WATERTIGHT_TOOLS, "texture": TEXTURE_CHOICES}
 # The external engine's two measured quality points, chosen on the "Faster rebuild"
 # checkbox: 512 is fast and a lighter file, 1536 is the tool's full detail.
 WATERTIGHT_TOOL_RES = (512, 1536)
@@ -124,7 +137,7 @@ CHOICE_SETTINGS = {"watertight_wativo_res": WATERTIGHT_TOOL_RES}
 
 INTEGER_SETTINGS = {
     "faces", "atlas", "paint_seed", "paint_res", "paint_steps", "paint_tex", "texture_size",
-    "hi3d_resolution", "watertight_across",
+    "hi3d_resolution", "watertight_across", "ultratex_seed",
 }
 
 # Which artifact proves a stage already ran, for `--resume` and for describing a run that
@@ -233,6 +246,7 @@ def capabilities(platform: str | None = None, find=blender_lookup.find_blender,
     hi3d, hi3d_reason = hi3d_readiness()
     watertight, watertight_reason = watertight_readiness()
     wativo, wativo_reason = wativo_readiness()
+    ultratex, ultratex_reason = ultratex_readiness()
     return {
         "repaint": repaint,
         "repaint_note": None if repaint else REPAINT_NOTE,
@@ -249,19 +263,37 @@ def capabilities(platform: str | None = None, find=blender_lookup.find_blender,
         "wativo_note": None if wativo else wativo_reason,
         "hi3d": hi3d,
         "hi3d_note": None if hi3d else hi3d_reason,
+        "ultratex": ultratex,
+        "ultratex_note": None if ultratex else ultratex_reason,
+        # Marigold V2 as a picture post-process (image -> albedo/normals/depth), not the
+        # Finish de-light: its venv being built is what the button checks.
+        "marigold": (venv_python(REPO / "vendor" / "marigold-v2")).is_file(),
     }
 
 
 def fit_to_machine(settings: dict[str, Any], platform: str | None = None) -> dict[str, Any]:
     """Settings this machine can actually run: no repaint off Apple Silicon (it is MLX),
-    and no Hi3D refine off NVIDIA (there is no CPU path and no Metal backend)."""
+    no Hi3D refine off NVIDIA (there is no CPU path and no Metal backend), and no
+    UltraTex texture off NVIDIA (its stack is torch cu128).
+
+    Then the coherence rules, so no combination reaches a stage that would ignore it:
+    a sub-knob without its parent is dropped, and the UltraTex repaint needs a textured
+    base to bake onto, so a geometry-only Hi3D refine (no texture transfer) keeps it off.
+    """
     platform = platform or host_platform()
     if platform != APPLE:
         settings = {**settings, "skip_paint": True}
     if platform != NVIDIA:
-        settings = {**settings, "hi3d": False, "hi3d_texture": False}
+        settings = {**settings, "hi3d": False, "hi3d_texture": False,
+                    "texture": "keep"}
     if settings.get("hi3d_texture") and not settings.get("hi3d"):
         settings = {**settings, "hi3d_texture": False}
+    if not settings.get("marigold"):
+        settings = {**settings, "marigold_normals": False}   # normals are Marigold's sub-knob
+    if settings.get("skip_photo", False):
+        settings = {**settings, "photo_fade_normals": False}  # fading needs the photo's paint
+    if settings.get("hi3d") and not settings.get("hi3d_texture"):
+        settings = {**settings, "texture": "keep"}            # no texture to repaint on
     return settings
 
 
@@ -488,7 +520,7 @@ def run_hi3d(job: FinishJob) -> int:
     """The Hi3D refine stage: replaces the retopo worker and produces geometry-only GLBs.
 
     The refine conditions on the reference picture, so a run must have one. The result
-    carries a derived sidecar chaining the source's licence with Hi3D's, so the chain
+    carries a derived sidecar chaining the source's licence with the project's, so the chain
     survives the textureless GLB Hi3D exports. The record names the rung that actually
     produced the mesh, which can be below the request when the quality gate steps down;
     the return value is that rung, for the caller's done event.
@@ -511,6 +543,8 @@ def run_hi3d(job: FinishJob) -> int:
             "resolution": refined.resolution,
             "requested_resolution": int(job.settings.get("hi3d_resolution", 512)),
             "geometry_only": True,
+            "cascade": bool(job.settings.get("hi3d_cascade", True)),
+            "remesh": bool(job.settings.get("hi3d_remesh", True)),
         },
         "size_bytes": job.result_glb.stat().st_size,
     }
@@ -523,6 +557,46 @@ def run_hi3d(job: FinishJob) -> int:
     return refined.resolution
 
 
+def hi3d_remesh_stage(job: FinishJob) -> Path:
+    """Two Blender voxel remeshes of the coarse mesh, before Hi3D refines it.
+
+    The PixelArtistry chain remeshes twice (solid, fill) so Hi3D builds detail on a
+    clean, even surface instead of amplifying the stair-steps and broken thin parts a
+    raw TRELLIS mesh carries. Returns the remeshed GLB in the run's steps directory.
+    """
+    blender = blender_lookup.find_blender()
+    if blender is None:
+        raise RuntimeError(blender_lookup.missing_help())
+    steps = job.steps_dir or job.directory
+    voxel = float(job.settings.get("hi3d_remesh_voxel", 0.002))
+    previous = job.asset_path
+    for index in (1, 2):
+        target = steps / f"hi3d_remesh{index}.glb"
+        job.emit({"phase": "hi3d-remesh", "overall_pct": 0,
+                  "message": f"Remesh {index}/2 before Hi3D (voxel {voxel})"})
+        command = [
+            str(blender), "--background", "--factory-startup", "--python-exit-code", "1",
+            "--python", str(REPO / "scripts" / "blender_voxel_remesh.py"), "--",
+            str(previous), str(target), str(voxel),
+        ]
+        job.process = subprocess.Popen(
+            command, cwd=str(REPO), env=processes.child_env(),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1,
+            **processes.TEXT_PIPE, **processes.group_popen_kwargs(),
+        )
+        assert job.process.stdout is not None
+        for raw in job.process.stdout:
+            line = raw.rstrip("\n")
+            if line:
+                job.append_log(line)
+        code = job.process.wait()
+        job.process = None
+        if code != 0 or not target.is_file():
+            raise RuntimeError(f"remesh {index}/2 before Hi3D failed")
+        previous = target
+    return previous
+
+
 def refine_stage(job: FinishJob, message_template: str) -> "Hi3DResult":
     """Run the Hi3D refine itself and return the refined GLB (in the steps dir) and its rung.
 
@@ -530,6 +604,10 @@ def refine_stage(job: FinishJob, message_template: str) -> "Hi3DResult":
     whole run (geometry-only) or the first half of a textured finish. The live process
     is registered on the job so Cancel kills it; Hi3D prints nothing for minutes and a
     flag checked between log lines would never be seen.
+
+    With `hi3d_remesh` the coarse mesh is remeshed twice first (the PixelArtistry fix
+    for broken thin parts), and with `hi3d_cascade` the refine climbs 512 -> 1024 ->
+    1536, each rung refining the previous rung's output.
     """
     from Ar3DRAHub import hi3d_backend
 
@@ -538,6 +616,8 @@ def refine_stage(job: FinishJob, message_template: str) -> "Hi3DResult":
         raise RuntimeError(reason or "Hi3D refine is not available here")
     if not job.image_path.is_file():
         raise RuntimeError("Hi3D refine needs the reference picture; none was uploaded")
+    coarse = (hi3d_remesh_stage(job) if job.settings.get("hi3d_remesh", True)
+              else job.asset_path)
     resolution = int(job.settings.get("hi3d_resolution", 512))
     job.emit({"phase": "hi3d", "overall_pct": 0,
               "message": message_template.format(resolution=resolution)})
@@ -547,10 +627,11 @@ def refine_stage(job: FinishJob, message_template: str) -> "Hi3DResult":
 
     return hi3d_backend.generate_hi3d(
         image=job.image_path,
-        coarse_mesh=job.asset_path,
+        coarse_mesh=coarse,
         output_dir=(job.steps_dir or job.directory),
         options=hi3d_backend.Hi3DOptions(
             repo=HI3D_VENDOR, resolution=resolution, cpu_offload=True,
+            cascade=bool(job.settings.get("hi3d_cascade", True)),
         ),
         log=job.append_log,
         on_process=register,
@@ -772,11 +853,165 @@ def run_marigold(job: FinishJob) -> tuple[bool, str | None]:
     return True, None
 
 
+def ultratex_readiness() -> tuple[bool, str | None]:
+    """Whether the UltraTex texture stage can run here, or why not.
+
+    Files only, no imports: the platform check, the checkout, and the materialised
+    LoRA + decoder files. Checked before a run starts, for the same reason Hi3D is:
+    a refusal mid-run would come after the upload and an expensive, doomed job.
+    """
+    from Ar3DRAHub import ultratex_backend
+
+    refusal = ultratex_backend.platform_refusal()
+    if refusal is not None:
+        return False, refusal
+    problems = ultratex_backend.verify_paths(ULTRAX_VENDOR)
+    if problems:
+        return False, ("UltraTex is not installed. Set it up on Setup & Status "
+                       "(scripts/bootstrap_ultratex.py, about 36 GB).")
+    root = ultratex_backend.checkpoints_dir()
+    missing = [relative for relative in ultratex_backend.LORA_FILES
+               if not (root / relative).is_file()]
+    if missing:
+        return False, ("UltraTex weights are missing: "
+                       f"{', '.join(missing)}. Set them up on Setup & Status.")
+    return True, None
+
+
+def _run_worker_process(job: FinishJob, command: list[str], phase: str,
+                        message: str, failure: str) -> None:
+    """Run one of the UltraTex stage's own subprocesses, streaming its output.
+
+    The live process is registered on the job so Cancel kills it; the output is
+    streamed line by line into the run log and the progress panel.
+    """
+    job.emit({"phase": phase, "overall_pct": 0, "message": message})
+    job.process = subprocess.Popen(
+        command, cwd=str(REPO), env=processes.child_env(),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1,
+        **processes.TEXT_PIPE, **processes.group_popen_kwargs(),
+    )
+    assert job.process.stdout is not None
+    for raw in job.process.stdout:
+        line = raw.rstrip("\n")
+        if line:
+            job.append_log(line)
+    code = job.process.wait()
+    job.process = None
+    if job.cancel_requested:
+        raise RuntimeError("UltraTex stage cancelled")
+    if code != 0:
+        raise RuntimeError(failure)
+
+
+def run_ultratex(job: FinishJob) -> tuple[bool, str | None]:
+    """The UltraTex texture stage, after the worker: render the six canonical views,
+    denoise albedo and metallic-roughness through FLUX.2-klein-base-9B, bake both onto
+    the mesh's UVs, and replace the result. Returns (ran, note); on failure the worker's
+    result is kept, the way Marigold's is.
+    """
+    if job.settings.get("texture") != "ultratex":
+        return False, None
+    from Ar3DRAHub import ultratex_backend
+
+    ready, reason = ultratex_readiness()
+    if not ready:
+        return False, f"UltraTex skipped: {reason}"
+    steps = job.steps_dir or job.directory
+    views_dir = steps / "ultratex-views"
+    seed = int(job.settings.get("ultratex_seed", 42))
+    num_steps = int(job.settings.get("ultratex_steps", 4))
+    guided = bool(job.settings.get("ultratex_guided"))
+
+    try:
+        views_command = [sys.executable, "-u", str(ULTRAX_VIEWS), str(job.result_glb),
+                         str(job.image_path), str(views_dir)]
+        if guided:
+            views_command.append("--guided")
+        _run_worker_process(
+            job,
+            views_command,
+            "ultratex-views",
+            "UltraTex: rendering the six canonical views of the mesh"
+            if not guided else "UltraTex: rendering the twelve guided views of the mesh",
+            "the UltraTex view render failed; the finished model was kept",
+        )
+        views_json = views_dir.parent / f"{views_dir.name}.json"
+        guided_views_json = views_dir.parent / f"{views_dir.name}-guided.json"
+        out_dir = steps / "ultratex-out"
+        canvases: dict[str, Path] = {}
+
+        def register(process) -> None:
+            job.process = process
+
+        def denoise(task: str, eval_json: Path, output_dir: Path, message: str) -> Path:
+            job.emit({"phase": f"ultratex-{task}", "overall_pct": 0, "message": message})
+            result = ultratex_backend.generate_ultratex(
+                eval_json, output_dir,
+                ultratex_backend.UltraTexOptions(
+                    repo=ULTRAX_VENDOR, resolution=1024, steps=num_steps,
+                    seed=seed, task=task),
+                log=job.append_log,
+                on_process=register,
+            )
+            job.process = None
+            if job.cancel_requested:
+                raise RuntimeError("UltraTex stage cancelled")
+            return result.canvas
+
+        canvases["albedo"] = denoise(
+            "albedo", views_json, out_dir,
+            f"UltraTex: denoising the albedo views ({num_steps} steps)")
+        if guided:
+            canvases["guided"] = denoise(
+                "albedo", guided_views_json, steps / "ultratex-out-guided",
+                f"UltraTex: denoising the 45-degree offset views ({num_steps} steps)")
+        canvases["mr"] = denoise(
+            "mr", views_json, out_dir,
+            f"UltraTex: denoising the metallic-roughness views ({num_steps} steps)")
+
+        textured = steps / "ultratex_baked.glb"
+        bake_command = [sys.executable, "-u", str(ULTRAX_BAKE), str(job.result_glb),
+                        str(canvases["albedo"]), str(textured), "--mr", str(canvases["mr"])]
+        if guided:
+            bake_command += ["--guided", str(canvases["guided"])]
+        _run_worker_process(
+            job,
+            bake_command,
+            "ultratex-bake",
+            "UltraTex: baking the views onto the mesh's UVs",
+            "the UltraTex bake failed; the finished model was kept",
+        )
+        textured.replace(job.result_glb)
+        from Ar3DRAHub.provenance import LICENSES, write_derived_sidecar
+
+        profile = LICENSES["ultratex"]
+        purpose = ("multi-view texture generation (albedo + metallic-roughness)"
+                   + ("; 12-view guided 45-degree albedo pass" if guided else ""))
+        write_derived_sidecar(
+            job.asset_path, job.result_glb, operation="ultratex-texture",
+            component_records=[{
+                "component": "yiboz2001/UltraTex + FLUX.2-klein-base-9B",
+                "purpose": purpose,
+                "license": {"name": profile.license_name, "url": profile.license_url,
+                            "conditions": list(profile.conditions)},
+                "commercial_status": profile.classification,
+            }],
+        )
+        return True, None
+    except RuntimeError as exc:
+        job.append_log(f"ultratex: {exc}")
+        return False, str(exc)
+
+
 def needed_inputs(job: FinishJob, settings: dict[str, Any]) -> list[Path]:
-    """The input files a run cannot do without. The picture only feeds Pixel Match and the
-    repaint, so a run with both off (one started without a picture) needs only the model.
-    Hi3D refine conditions on the picture, so it is required there."""
+    """The input files a run cannot do without. The picture only feeds Pixel Match, the
+    repaint and the UltraTex texture stage, so a run with all three off (one started
+    without a picture) needs only the model. Hi3D refine conditions on the picture, so it
+    is required there."""
     if settings.get("hi3d"):
+        return [job.asset_path, job.image_path]
+    if settings.get("texture") == "ultratex":
         return [job.asset_path, job.image_path]
     if settings.get("skip_photo", False) and settings.get("skip_paint", True):
         return [job.asset_path]
@@ -810,6 +1045,8 @@ def pixel_match_result(ran: bool, views_dir: Path, settings: dict[str, Any]) -> 
     changed little look the same."""
     if ran:
         frames = (_read_json(views_dir / "transforms.json") or {}).get("frames") or []
+        if len(frames) >= 4:
+            return "on (4 views)"
         return "on (front + back)" if len(frames) >= 2 else "on (front)"
     if settings.get("skip_photo", False):
         return "off"
@@ -1160,6 +1397,13 @@ class FinishJobManager:
                     ready, reason = hi3d_readiness()
                     if not ready:
                         raise ValueError(reason or "Hi3D refine is not available here")
+                if job.settings.get("texture") == "ultratex":
+                    if image is None:
+                        raise ValueError("UltraTex texture needs the picture the model "
+                                         "was made from.")
+                    ready, reason = ultratex_readiness()
+                    if not ready:
+                        raise ValueError(reason or "UltraTex texture is not available here")
                 job.input_dir.mkdir(parents=True, exist_ok=True)
                 job.asset_path.write_bytes(asset)
                 if image is not None:
@@ -1341,7 +1585,10 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 provenance = job.result_glb.with_suffix(".provenance.json")
                 if provenance.is_file():
                     shutil.copy(provenance, job.record_path)   # what record_url serves
+            # Coherence: Marigold de-lights the photo's baked lighting first, so the
+            # UltraTex repaint paints on a de-lit base and is never de-lit itself.
             marigold_ran, marigold_note = run_marigold(job)
+            ultratex_ran, ultratex_note = run_ultratex(job)
             watertight_target, watertight_error = watertight_extra(job)
             pixel_match = pixel_match_result(photo_ran, job.views_dir, job.settings)
             try:
@@ -1363,6 +1610,8 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 "path": library_path(job.result_glb),
                 "source_url": served_url(job.asset_path),
                 "pixal3d": (job.views_dir / "transforms.json").is_file(),
+                "ultratex": ultratex_ran,
+                "ultratex_note": ultratex_note,
                 "marigold": marigold_ran,
                 "marigold_note": marigold_note,
                 "watertight": (watertight_target is not None

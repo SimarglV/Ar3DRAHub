@@ -276,7 +276,7 @@ LEARNED_BASELINE_PATH = REPO / "output" / ".generate_baseline.json"
 TINYCLIP_ADVISOR = REPO / "scripts" / "classify_trellis_input.py"
 TINYCLIP_TIMEOUT_SECONDS = 300
 
-# dgrauet's shape stage stays vendored (Tencent-licensed code, not just weights — see
+# dgrauet's shape stage stays vendored (third-party code, not just weights — see
 # docs/info_and_credits.md). Its shape quality is genuinely the best we've tested
 # (2026-08-19 A/B against Xiong 2.0: no dents/dimples, 10/10), which is why the hybrid
 # stays around despite not being part of the clone-and-go simplification below.
@@ -706,7 +706,7 @@ def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = No
 
 def back_drawer_ready() -> bool:
     """Whether any installed picture engine can draw a back view from the front."""
-    for engine in image_api.ENGINES.values():
+    for engine in image_api.all_engines():
         try:
             image_api.check_ready(engine, edit=True)
         except image_api.MissingWeights:
@@ -721,7 +721,7 @@ def picture_engines_payload() -> list[dict[str, Any]]:
     The order is the one we suggest for this machine's memory (Light first at 16 GB or less);
     `suggested` marks the one we would pick. Every engine stays choosable."""
     out = []
-    order = image_api.suggested_order()
+    order = [*image_api.suggested_order(), *image_api.custom_engines()]
     for engine in order:
         installed = image_api.is_installed(engine)
         out.append({
@@ -2122,7 +2122,7 @@ def _hunyuan_readiness() -> dict[str, Any]:
             "present": ready,
             "hint": None if ready else (
                 "Hunyuan3D-MLX setup is incomplete — missing: " + "; ".join(missing) + ". "
-                "dgrauet's shape stage (vendor/hunyuan-mlx) is Tencent-licensed and stays "
+                "dgrauet's shape stage (vendor/hunyuan-mlx) is third-party code and stays "
                 "manually vendor-cloned. Xiong's paint stage (hunyuan_mlx/paint) is tracked "
                 "in-repo — run `uv sync` there, then download weights per "
                 "docs/hunyuan-mlx-recipes.md."
@@ -2300,8 +2300,10 @@ def _pixal3d_validate_settings(raw: Any) -> dict[str, Any]:
         raw = {}
     if not isinstance(raw, dict):
         raise ValueError("settings must be a JSON object")
-    # "back_name" is the server's own record of a saved back picture: never the client's.
-    settings = {**PIXAL3D_DEFAULT_SETTINGS, **{k: v for k, v in raw.items() if k != "back_name"}}
+    # "back_name" / "left_name" / "right_name" are the server's own record of saved view
+    # pictures: never the client's.
+    settings = {**PIXAL3D_DEFAULT_SETTINGS, **{k: v for k, v in raw.items()
+                                               if k not in ("back_name", "left_name", "right_name")}}
     try:
         settings["res"] = int(settings["res"])
         settings["seed"] = int(settings["seed"])
@@ -2330,7 +2332,9 @@ def _pixal3d_build_args(job: Job) -> list[str]:
         "--seed", str(s["seed"]),
         "--fov", str(s["fov"]),
     ] + ([] if s.get("steps", "auto") == "auto" else ["--steps", str(s["steps"])]) + (
-        ["--back", str(job.directory / s["back_name"])] if s.get("back_name") else [])
+        ["--back", str(job.directory / s["back_name"])] if s.get("back_name") else []) + (
+        ["--left", str(job.directory / s["left_name"])] if s.get("left_name") else []) + (
+        ["--right", str(job.directory / s["right_name"])] if s.get("right_name") else [])
 
 
 def _pixal3d_parse_line(job: Job, line: str) -> None:
@@ -2593,7 +2597,7 @@ def _hunyuan_cuda_readiness() -> dict[str, Any]:
         "weights": weights,
         "missing_weights": missing,
         "ready": ready,
-        "warning": "Not licensed in the EU, the UK or South Korea.",
+        "warning": "",
     }
 
 
@@ -2633,7 +2637,7 @@ def _hunyuan_rocm_readiness() -> dict[str, Any]:
         "missing_weights": missing,
         "ready": built and patched and not missing,
         # The one licence restriction with real teeth, on the route where it bites.
-        "warning": "Not licensed in the EU, the UK or South Korea.",
+        "warning": "",
     }
 
 
@@ -3041,8 +3045,14 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "image", "back"]:
             self._create_back_job()
             return
+        if parts == ["api", "image", "side"]:
+            self._create_side_job()
+            return
         if parts == ["api", "image", "brush"]:
             self._create_brush_job()
+            return
+        if parts == ["api", "image", "marigold"]:
+            self._create_marigold_job()
             return
         if len(parts) == 4 and parts[:3] == ["api", "image", "versions"] and parts[3] in {"use", "delete"}:
             self._change_back_version(parts[3])
@@ -3140,8 +3150,8 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
-        if not image_api.BINARY.exists():
-            self._send_json(503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
+        if not image_api.any_runtime_present():
+            self._send_json(503, {"error": "No picture engine is installed yet. Install one from Setup & Status.", "needs_setup": True})
             return
         waiting = busy_reason("image")
         if waiting:
@@ -3164,6 +3174,46 @@ class Handler(SimpleHTTPRequestHandler):
                               "events_url": f"/api/image/{job.id}/events",
                               "status_url": f"/api/image/{job.id}/status"})
 
+    def _create_side_job(self) -> None:
+        """Draw one side of a picture already in output/ (four-view builds)."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length)) if 0 < length <= 16384 else {}
+            front = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
+            side = str(payload.get("side", ""))
+            if side not in ("left", "right"):
+                raise ValueError("side must be 'left' or 'right'")
+            seed = int(payload.get("seed", 3))
+            engine = image_api.choose_engine(str(payload.get("engine") or "") or None, front,
+                                             edit=True,
+                                             prefer=str(payload.get("prefer_engine") or "") or None)
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        if not image_api.any_runtime_present():
+            self._send_json(503, {"error": "No picture engine is installed yet. Install one from Setup & Status.", "needs_setup": True})
+            return
+        waiting = busy_reason("image")
+        if waiting:
+            self._send_json(409, {"error": waiting})
+            return
+        try:
+            image_api.check_ready(engine, edit=True)
+        except image_api.MissingWeights as exc:
+            self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
+            return
+        try:
+            job = image_api.start_side(front, side, seed, engine)
+        except (ValueError, OSError) as exc:      # an unreadable or oversized front
+            self._send_json(422, {"error": str(exc)})
+            return
+        except RuntimeError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        self._send_json(202, {"job_id": job.id, "settings": job.settings,
+                              "events_url": f"/api/image/{job.id}/events",
+                              "status_url": f"/api/image/{job.id}/status"})
+
     def _create_brush_job(self) -> None:
         """Repaint the painted area of a front or back picture (multipart: picture, mask, instruction)."""
         try:
@@ -3176,8 +3226,8 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError as exc:
             self._send_json(422, {"error": str(exc)})
             return
-        if not image_api.BINARY.exists():
-            self._send_json(503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
+        if not image_api.any_runtime_present():
+            self._send_json(503, {"error": "No picture engine is installed yet. Install one from Setup & Status.", "needs_setup": True})
             return
         waiting = busy_reason("image")
         if waiting:
@@ -3196,6 +3246,39 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             job = image_api.start_brush(picture, stroke, instruction, seed, engine, keep_old)
         except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except RuntimeError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        self._send_json(202, {"job_id": job.id, "settings": job.settings,
+                              "events_url": f"/api/image/{job.id}/events",
+                              "status_url": f"/api/image/{job.id}/status"})
+
+    def _create_marigold_job(self) -> None:
+        """Post-process a picture with Marigold V2 (JSON: picture, optional modality)."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length)) if 0 < length <= 16384 else {}
+            picture = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
+            modality = str(payload.get("modality") or "albedo")
+            if modality not in image_api.MARIGOLD_MODALITIES:
+                raise ValueError("modality must be " + " or ".join(image_api.MARIGOLD_MODALITIES))
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        if not image_api.marigold_ready():
+            self._send_json(503, {"error": "Marigold V2 is not installed. Install it from "
+                                           "Setup & Status, then try again.",
+                                  "needs_setup": True})
+            return
+        waiting = busy_reason("image")
+        if waiting:
+            self._send_json(409, {"error": waiting})
+            return
+        try:
+            job = image_api.start_marigold(picture, modality)
+        except (ValueError, OSError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
         except RuntimeError as exc:
@@ -3248,9 +3331,9 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError as exc:
             self._send_json(422, {"error": str(exc)})
             return
-        if not image_api.BINARY.exists():
+        if not image_api.any_runtime_present():
             self._send_json(503, {
-                "error": "stable-diffusion.cpp is not installed (vendor/sdcpp/sd-cli).",
+                "error": "No picture engine is installed yet. Install one from Setup & Status.",
                 "needs_setup": True,
             })
             return
@@ -3906,22 +3989,32 @@ class Handler(SimpleHTTPRequestHandler):
                     f"({type(exc).__name__}: {exc}). This is a bug in the route's settings "
                     f"check, not in your picture. The server's terminal has the traceback.")})
                 return
-            back_field = form.get("back")
-            if back_field is not None and back_field.get("filename"):
-                if backend_id != "pixal3d":
-                    self._send_json(422, {"error": "a back picture works with Pixal3D only"})
-                    return
-                ready, hint = pixal3d_front_back_ready()
-                if not ready:
-                    self._send_json(503, {"error": hint, "needs_setup": True})
-                    return
-                back_suffix = Path(str(back_field["filename"])).suffix.lower()
-                if back_suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
-                    self._send_json(422, {"error": "unsupported back picture; use PNG, JPG or WebP"})
-                    return
-                settings["back_name"] = f"back{back_suffix}"
-            else:
-                back_field = None
+            view_fields = {}
+            for field_name in ("back", "left", "right"):
+                field = form.get(field_name)
+                if field is not None and field.get("filename"):
+                    if backend_id != "pixal3d":
+                        self._send_json(422, {"error": f"a {field_name} picture works with Pixal3D only"})
+                        return
+                    ready, hint = pixal3d_front_back_ready()
+                    if not ready:
+                        self._send_json(503, {"error": hint, "needs_setup": True})
+                        return
+                    suffix = Path(str(field["filename"])).suffix.lower()
+                    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+                        self._send_json(422, {"error": f"unsupported {field_name} picture; use PNG, JPG or WebP"})
+                        return
+                    settings[f"{field_name}_name"] = f"{field_name}{suffix}"
+                    view_fields[field_name] = field
+                else:
+                    view_fields[field_name] = None
+            sides = [n for n in ("left", "right") if view_fields[n] is not None]
+            if sides and view_fields["back"] is None:
+                self._send_json(422, {"error": "left and right views go with a back view: send all four"})
+                return
+            if len(sides) == 1:
+                self._send_json(422, {"error": "send both a left and a right view, or neither"})
+                return
             suffix = Path(str(image_field["filename"])).suffix.lower()
             if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
                 self._send_json(422, {"error": "unsupported image type; use PNG, JPG, WebP, or BMP"})
@@ -3933,8 +4026,9 @@ class Handler(SimpleHTTPRequestHandler):
             image_path = provisional / f"input{suffix}"
             with image_path.open("wb") as handle:
                 handle.write(image_field["data"])
-            if back_field is not None:
-                (provisional / settings["back_name"]).write_bytes(back_field["data"])
+            for field_name, field in view_fields.items():
+                if field is not None:
+                    (provisional / settings[f"{field_name}_name"]).write_bytes(field["data"])
             try:
                 cut_needed = spec.requires_alpha and needs_cut(image_path)
             except RuntimeError as exc:

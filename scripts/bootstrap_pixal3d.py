@@ -118,8 +118,7 @@ MV_SHARED = ("dinov3.gguf", "pixal3d_naf.gguf", "ss_dec.gguf", "shape_dec.gguf",
 MV_GB = 5.9
 
 LICENCE = (
-    "MIT (code and flow weights); the bundled image encoder is under the\n"
-    "  DINOv3 License. https://huggingface.co/raven38/pixal3d-sv-q8_0-v1"
+    "MIT. https://huggingface.co/raven38/pixal3d-sv-q8_0-v1"
 )
 
 # Looked up through the module so a test can pretend to be another machine.

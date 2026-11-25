@@ -743,6 +743,40 @@ def add_normal_texture(data: bytes, png: bytes) -> bytes:
     return _join_glb(doc, binary)
 
 
+def add_metallic_roughness_texture(data: bytes, png: bytes) -> bytes:
+    """Add a metallic-roughness map to a GLB that has none, reusing the base
+    colour's sampler. The image is appended as a new buffer view, a texture
+    entry points at it, and the material's `metallicRoughnessTexture` is set.
+    Every geometry byte is left untouched. The map follows glTF: the green
+    channel is roughness and the blue channel is metallic.
+    """
+    doc, binary = _split_glb(data)
+    materials = doc["materials"]
+    if len(materials) != 1:
+        raise ValueError(f"expected one material, found {len(materials)}")
+    image_index = len(doc["images"])
+    view_index = len(doc["bufferViews"])
+    doc["images"].append({"bufferView": view_index, "mimeType": "image/png"})
+
+    sampler = None
+    base = materials[0].get("pbrMetallicRoughness", {}).get("baseColorTexture")
+    if base is not None:
+        sampler = doc["textures"][base["index"]].get("sampler")
+    texture_index = len(doc["textures"])
+    entry: dict = {"source": image_index}
+    if sampler is not None:
+        entry["sampler"] = sampler
+    doc["textures"].append(entry)
+    materials[0].setdefault("pbrMetallicRoughness", {})[
+        "metallicRoughnessTexture"] = {"index": texture_index}
+
+    binary += b"\0" * (-len(binary) % 4)
+    doc["bufferViews"].append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(png)})
+    binary += png
+    doc["buffers"][0]["byteLength"] = len(binary)
+    return _join_glb(doc, binary)
+
+
 def _drop_webp_extension(doc: dict, image: int) -> None:
     """Point every texture that showed `image` through EXT_texture_webp straight at it,
     now that it is a PNG, and stop declaring the extension once nothing uses it."""

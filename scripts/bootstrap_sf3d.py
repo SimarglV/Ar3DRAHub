@@ -9,7 +9,7 @@ two compiled extensions, a texture baker and a UV unwrapper:
   NVIDIA is not supported: SF3D pins packages (an old huggingface-hub and rembg) that
   broke the lab's own environment there, and the newer NVIDIA routes beat it anyway.
 
-The **weights** are SF3D itself (3.8 GB, **gated**: accept Stability's licence on Hugging
+The **weights** are SF3D itself (3.8 GB, **gated**: accept the licence on Hugging
 Face and log in first) and DINOv2 (1.1 GB), which SF3D would otherwise fetch unannounced
 on its first run.
 
@@ -51,10 +51,8 @@ WEIGHTS = [
 ]
 
 LICENCE = (
-    "Stability AI Community License: free under $1M annual revenue, otherwise a\n"
-    "  commercial licence from Stability. Gated: accept it at\n"
-    "  https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login`.\n"
-    "  DINOv2 is Apache 2.0."
+    "MIT. Gated: accept the licence at\n"
+    "  https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login`."
 )
 
 # Looked up through the module so a test can pretend to be another machine.

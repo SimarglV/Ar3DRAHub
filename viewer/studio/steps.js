@@ -28,7 +28,7 @@ export function stepBody(stepId, asset, ctx) {
     const another = asset.prompt
       ? `<details class="adv redo"><summary>Draw another picture</summary><p class="hint">Opens Create with the same description. A new picture starts a new item in the Library.</p>
           <button class="primary" data-newpicture>Open Create</button></details>` : '';
-    return another + frontBrush(asset, ctx) + backRedo(asset, ctx) + backBrush(asset, ctx) + backVersions(asset);
+    return another + frontBrush(asset, ctx) + backRedo(asset, ctx) + sideRedo(asset, ctx) + backBrush(asset, ctx) + marigoldAlbedo(asset, ctx) + backVersions(asset);
   }
   if (stepId === 'model') {
     if (!asset.picture) return '<p class="hint">This asset has no picture on disk to build from.</p>';
@@ -56,6 +56,12 @@ export function stepBody(stepId, asset, ctx) {
     const hi3d = asset.picture && ctx.hi3dReady
       ? '<label class="check"><input type="checkbox" data-k="hi3d"><span>Hi3D refine <span class="hint">rebuilds the geometry with Hi3D v1.0 — sharper folds, scales, teeth. NVIDIA only, a few minutes. Without “Keep the texture” the result keeps the refined mesh as it is (about a million triangles at 512 detail): Detail and Pixel Match are ignored.</span></span></label><label class="check" data-hi3d-tex hidden><input type="checkbox" data-k="hi3dtex"><span>Keep the texture <span class="hint">transfers the original texture onto the refined mesh, then Detail, Pixel Match and Marigold run as usual. Front details may drift slightly, because the mesh is re-aligned approximately.</span></span></label>'
       : '';
+    const ultratex = asset.picture && ctx.ultratexReady
+      ? '<label class="check"><input type="checkbox" data-k="ultratex"><span>UltraTex repaint <span class="hint">redraws the texture from the six canonical views with FLUX.2-klein-base-9B, then bakes it onto the model\'s own UVs — the model keeps its own paint wherever no view covers it. NVIDIA only; needs the UltraTex setup (about 36 GB).</span></span></label>'
+        + '<label class="check" data-ultratex-opt hidden><input type="checkbox" data-k="ultratexguided"><span>12-view guided <span class="hint">also generates a second albedo pass over six 45-degree offset views, so more of the mesh takes the generated paint. Costs one extra generation.</span></span></label>'
+      : '';
+    const ultratexNote = asset.picture && ctx.ultratexReady === false && ctx.ultratexNote
+      ? `<p class="hint">UltraTex is unavailable: ${esc(ctx.ultratexNote)}</p>` : '';
     // Watertight is offered on any model, not only a Hi3D one: the gaps come from the
     // generator and from Detail cutting the surface up, so a plain Pixal3D finish gets
     // them too.
@@ -67,15 +73,20 @@ export function stepBody(stepId, asset, ctx) {
       : ctx.watertightReady && ctx.wativoReady === false && ctx.wativoNote
         ? `<p class="hint">The faster watertight rebuild is unavailable: ${esc(ctx.wativoNote)}</p>` : '';
     const photo = asset.picture
-      ? '<label class="check"><input type="checkbox" data-k="photo" checked><span>Pixel Match <span class="hint">keeps your picture\'s sharp details on the front</span></span></label><label class="check"><input type="checkbox" data-k="marigold"><span>Marigold <span class="hint">de-lights the front, straight from your picture</span></span></label><label class="check"><input type="checkbox" data-k="marigoldnormals"><span>Marigold normals <span class="hint">also bake surface normals from Marigold — off means de-light only</span></span></label>'
+      ? '<label class="check"><input type="checkbox" data-k="photo" checked><span>Pixel Match <span class="hint">keeps your picture\'s sharp details on the front</span></span></label>'
+        + '<label class="check" data-photo-sub hidden><input type="checkbox" data-k="edgefade" checked><span>Edge fade <span class="hint">Pixel Match fades out where one part sits in front of another, like an ear in front of a head. Turn it off if hair gets coloured specks or small eyes go dark, most often on Full detail.</span></span></label>'
+        + '<label class="check" data-photo-sub hidden><input type="checkbox" data-k="nudge" checked><span>Nudge <span class="hint">Pixel Match first fits your picture onto the model. Turn it off if a feature shows up twice (a ghost eye) or slides off its place.</span></span></label>'
+        + '<label class="check" data-photo-sub hidden><input type="checkbox" data-k="fadenormals"><span>Fade normals where painted <span class="hint">flatten the normal map where Pixel Match painted — off keeps the full relief</span></span></label>'
+        + '<label class="check"><input type="checkbox" data-k="marigold"><span>Marigold <span class="hint">de-lights the front, straight from your picture. With the UltraTex repaint it runs first, so the generated paint is never de-lit.</span></span></label>'
+        + '<label class="check" data-marigold-sub hidden><input type="checkbox" data-k="marigoldnormals"><span>Marigold normals <span class="hint">also bake surface normals from Marigold — off means de-light only</span></span></label>'
       : '<p class="hint">No picture on disk for this model, so Pixel Match is skipped: Finish cleans up the mesh and re-bakes its own texture.</p>';
     const skipped = !asset.finished && asset.rigged
       ? '<p class="hint">Skipped so far. Finishing now makes a new finished model; rig it again to use it.</p>' : '';
-    const controls = `${skipped}${finishDetail(asset)}${hi3d}${watertight}${watertightNote}${photo}
+    const controls = `${skipped}${finishDetail(asset)}${hi3d}${ultratex}${ultratexNote}${watertight}${watertightNote}${photo}
       <details class="adv"><summary>Advanced</summary>
         ${asset.picture && ctx.hi3dReady ? '<label class="field" data-hi3d hidden>Hi3D detail<select data-k="hi3dres"><option value="512" selected>512 · one pass, lightest</option><option value="1024">1024 · two passes, more detail</option><option value="1536">1536 · three passes, heaviest (needs a very large GPU; falls back to 1024 if parts go missing)</option></select></label>' : ''}
+        ${asset.picture && ctx.ultratexReady ? '<label class="field" data-ultratex-opt hidden>UltraTex steps<select data-k="ultratexsteps"><option value="4" selected>4 · fast</option><option value="8">8 · better</option><option value="25">25 · the model\'s full quality, slowest</option></select></label>' : ''}
         ${ctx.watertightReady ? '<label class="field" data-watertight hidden>Watertight detail<select data-k="wtacross"><option value="200">200 · coarser, quick</option><option value="300" selected>300 · balanced, a few minutes</option><option value="450">450 · sharper, several minutes</option><option value="700">700 · finest, slow and memory-hungry</option></select></label>' : ''}
-        ${asset.picture ? '<label class="check"><input type="checkbox" data-k="edgefade" checked><span>Edge fade <span class="hint">Pixel Match fades out where one part sits in front of another, like an ear in front of a head. Turn it off if hair gets coloured specks or small eyes go dark, most often on Full detail.</span></span></label><label class="check"><input type="checkbox" data-k="nudge" checked><span>Nudge <span class="hint">Pixel Match first fits your picture onto the model. Turn it off if a feature shows up twice (a ghost eye) or slides off its place.</span></span></label><label class="check"><input type="checkbox" data-k="fadenormals"><span>Fade normals where painted <span class="hint">flatten the normal map where Pixel Match painted — off keeps the full relief</span></span></label>' : ''}
         <label class="field">Texture size<select data-k="texture"><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select></label>
       </details>
       <button class="primary" data-run="finished">${asset.finished ? 'Finish again' : 'Finish model'}</button>`;
@@ -150,19 +161,65 @@ function motionPicker(asset, ctx, cta = null) {
  *  picture" (the server reads who drew it) or one by name. */
 export function engineChoice(ctx, attr, same) {
   const installed = (ctx.pictureEngines || []).filter((e) => e.installed);
-  if (installed.length < 2) return '';
+  if (installed.length < 1) return '';
   return `<label class="field">Picture engine<select ${attr}><option value="">${esc(same)}</option>${installed
     .map((e) => `<option value="${esc(e.id)}">${esc(e.label)}</option>`).join('')}</select></label>`;
 }
 
+/** Whether a picture engine that can draw a back or side view is installed: Flux by itself,
+ *  Qwen with its vision projector. Drawing the views needs only this; building a 3D model from
+ *  them also needs Pixal3D's multi-view weights, which the model step checks on its own. */
+export function drawerReady(ctx) {
+  return (ctx.pictureEngines || []).some((e) => e.can_draw_backs);
+}
+
 export function backRedo(asset, ctx) {
-  if (!asset.picture || asset.kind === 'prop set' || !(asset.back || ctx.frontBack?.ready)) return '';
+  if (!asset.picture || asset.kind === 'prop set' || !(asset.back || drawerReady(ctx))) return '';
   const title = asset.back ? 'Draw the back again' : 'Draw a back picture';
   return redoBox(title, `${asset.back ? 'A new try at the back, from the same front. The current back is kept beside it as an older copy. ' : ''}Make the 3D model again afterwards to build from it.`,
     `<label class="field">What to change <span class="hint">(optional)</span><textarea data-k="change" rows="2" maxlength="500" placeholder="A thin satchel strap and a plain, smooth coat back"></textarea></label>
      <p class="hint">Say what you want to see, not what to remove: naming a thing tends to draw it.</p>
      ${engineChoice(ctx, 'data-backengine', 'Same engine as the front')}
      <button class="primary" data-run="back">${title}</button>`);
+}
+
+/** "Draw the left/right side" under the Picture step, for a four-view Pixal3D build. Each
+ *  side is drawn once and kept; draw the back too, then make the 3D model from all four. */
+export function sideRedo(asset, ctx) {
+  if (!asset.picture || asset.kind === 'prop set' || !(asset.left || asset.right || drawerReady(ctx))) return '';
+  const engine = engineChoice(ctx, 'data-sideengine', 'Same engine as the front');
+  return ['left', 'right'].map((side) => {
+    const title = asset[side] ? `Draw the ${side} side again` : `Draw the ${side} side`;
+    return redoBox(title, `${asset[side] ? 'A new try at that side, from the same front. ' : ''}Draw the back and both sides, then make the 3D model to build from all four.`,
+      `${engine}<button class="primary" data-run="${side}">${title}</button>`);
+  }).join('');
+}
+
+/** "Marigold albedo" under the Picture step: de-light a view, so it can be used as a
+ *  base-colour source instead of the lit photo. Offered for every view the asset has —
+ *  the front, then the drawn back and sides — because a multi-view build bakes each view's
+ *  lighting into its texture. Marigold V2 runs in its own venv. */
+export function marigoldAlbedo(asset, ctx) {
+  if (!asset.picture || asset.kind === 'prop set' || !ctx.marigoldReady) return '';
+  const views = [['front', asset.picture, 'the picture'], ['back', asset.back, 'the back'],
+                 ['left', asset.left, 'the left view'], ['right', asset.right, 'the right view']]
+    .filter(([, file]) => file);
+  if (!views.length) return '';
+  const buttons = views.map(([kind, , label]) =>
+    `<button class="primary" data-marigold="${kind}">De-light ${label}</button>`).join('');
+  return redoBox('Marigold albedo',
+    'De-lights a view: Marigold V2 predicts the same surface without the photo\'s shadows and highlights. The de-lit result becomes that picture (the old one is kept beside it), so the 3D model can be built again from it.',
+    buttons);
+}
+
+/** Wire the de-light buttons: each runs Marigold on that view, then re-shows the pictures. */
+export function wireMarigold(card, asset, ctx) {
+  card.querySelectorAll('[data-marigold]').forEach((button) => button.onclick = async () => {
+    const file = asset[button.dataset.marigold];
+    if (!file) return;
+    await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/marigold', JSON.stringify({ picture: file, modality: 'albedo' })) }), ctx, 'picture');
+    ctx.showPictures?.();   // the view was replaced in place: force the picture view to re-fetch it
+  });
 }
 
 const BRUSH_TIP = `Paint over the part to change, then say what goes there. Only the painted part is drawn again;
@@ -393,6 +450,15 @@ export function wireStep(card, stepId, asset, ctx) {
     card.querySelector('[data-full]').hidden = faces.value !== 'full';
     card.querySelector('[data-hero-hint]').hidden = faces.value !== 'hero';
   };
+  const ultratex = k('ultratex');
+  const ultratexGuided = k('ultratexguided');
+  const syncUltraTex = () => {
+    const on = !!ultratex?.checked;
+    for (const field of card.querySelectorAll('[data-ultratex-opt]')) field.hidden = !on;
+    if (!on && ultratexGuided) ultratexGuided.checked = false;
+  };
+  if (ultratex) ultratex.onchange = syncUltraTex;
+  syncUltraTex();
   const hi3d = k('hi3d');
   const hi3dTex = k('hi3dtex');
   const syncHi3d = () => {
@@ -401,12 +467,18 @@ export function wireStep(card, stepId, asset, ctx) {
     card.querySelector('[data-hi3d]').hidden = !refine;
     card.querySelector('[data-hi3d-tex]').hidden = !refine;
     if (!refine && hi3dTex) hi3dTex.checked = false;
-    // Geometry-only refine: Detail, Pixel Match, Marigold and the texture size are
-    // ignored (no retopo worker runs), so they read as off rather than pretending.
+    // Geometry-only refine: Detail, Pixel Match, Marigold, the UltraTex repaint and the
+    // texture size are ignored (no retopo worker runs, and there is no texture to repaint),
+    // so they read as off rather than pretending.
     const ignored = refine && !textured;
-    for (const key of ['faces', 'photo', 'marigold', 'marigoldnormals', 'edgefade', 'nudge', 'fadenormals', 'texture']) {
+    for (const key of ['faces', 'photo', 'marigold', 'marigoldnormals', 'edgefade', 'nudge', 'fadenormals', 'texture', 'ultratex', 'ultratexguided', 'ultratexsteps']) {
       const el = k(key);
       if (el) el.disabled = ignored;
+    }
+    if (ignored) {
+      if (ultratex) ultratex.checked = false;
+      if (ultratexGuided) ultratexGuided.checked = false;
+      syncUltraTex();
     }
     if (refine) {
       // The server refuses Hi3D + Hero together; grey the option out either way.
@@ -416,6 +488,30 @@ export function wireStep(card, stepId, asset, ctx) {
   };
   if (hi3d) hi3d.onchange = syncHi3d;
   if (hi3dTex) hi3dTex.onchange = syncHi3d;
+  const photo = k('photo');
+  const syncPhoto = () => {
+    const on = !!photo?.checked;
+    for (const field of card.querySelectorAll('[data-photo-sub]')) field.hidden = !on;
+    if (!on) {
+      for (const key of ['edgefade', 'nudge', 'fadenormals']) {
+        const el = k(key);
+        if (el) el.checked = false;
+      }
+    }
+  };
+  if (photo) photo.onchange = syncPhoto;
+  syncPhoto();
+  const marigold = k('marigold');
+  const syncMarigold = () => {
+    const on = !!marigold?.checked;
+    for (const field of card.querySelectorAll('[data-marigold-sub]')) field.hidden = !on;
+    if (!on) {
+      const el = k('marigoldnormals');
+      if (el) el.checked = false;
+    }
+  };
+  if (marigold) marigold.onchange = syncMarigold;
+  syncMarigold();
   const watertight = k('watertight');
   const wativo = k('wativo');
   const syncWatertight = () => {
@@ -452,6 +548,9 @@ export function wireStep(card, stepId, asset, ctx) {
       detail: finishDetailSettings(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, marigold: !!k('marigold')?.checked, marigoldNormals: !!k('marigoldnormals')?.checked, fadeNormals: !!k('fadenormals')?.checked, edgeFade: k('edgefade')?.checked !== false, nudge: k('nudge')?.checked !== false, texture: Number(k('texture')?.value),
       hi3d: !!hi3d?.checked, hi3dResolution: Number(k('hi3dres')?.value || 512),
       hi3dTexture: !!hi3dTex?.checked,
+      ultratex: ultratex?.checked ? 'ultratex' : 'keep',
+      ultratexSteps: Number(k('ultratexsteps')?.value || 4),
+      ultratexGuided: !!ultratexGuided?.checked,
       watertight: !!watertight?.checked, watertightAcross: Number(k('wtacross')?.value || 300),
       watertightTool: wativo?.checked ? 'external' : 'own',
       wativoRes: Number(k('wativores')?.value || 512),
@@ -460,6 +559,7 @@ export function wireStep(card, stepId, asset, ctx) {
       rigSource: k('rigsource')?.value || 'finished',
       change: k('change')?.value?.trim() || '',
       backEngine: card.querySelector('[data-backengine]')?.value || '',
+      sideEngine: card.querySelector('[data-sideengine]')?.value || '',
       motionPrompt: k('motiontext')?.value?.trim() || '',
       motionCfg: Number(k('mcfg')?.value || 3), motionReps: Number(k('mreps')?.value || 1),
       motionLoop: !!k('mloop')?.checked,
@@ -469,13 +569,15 @@ export function wireStep(card, stepId, asset, ctx) {
     // the Picture step also carries "Draw the back again"; the Animate step carries a
     // UniMate text-motion run: those buttons name the step they run
     const kindId = button.dataset.run === 'back' ? 'back'
+      : button.dataset.run === 'left' ? 'left'
+      : button.dataset.run === 'right' ? 'right'
       : button.dataset.run === 'motion' ? 'motion'
       : button.dataset.run === 'bind' ? 'bind' : stepId;
     const plan = chainPlan(kindId, asset, settings);
     if (plan && ctx.startChain) { ctx.startChain(plan); return; }
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
-        : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, marigold: !!settings.marigold, marigold_normals: !!settings.marigoldNormals, photo_fade_normals: !!settings.fadeNormals, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture, hi3d: !!settings.hi3d, hi3d_resolution: settings.hi3dResolution, hi3d_texture: !!settings.hi3dTexture, watertight: !!settings.watertight, watertight_across: settings.watertightAcross, watertight_tool: settings.watertightTool, watertight_wativo_res: settings.wativoRes })),
+        : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, marigold: !!settings.marigold, marigold_normals: !!settings.marigoldNormals, photo_fade_normals: !!settings.fadeNormals, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture, hi3d: !!settings.hi3d, hi3d_resolution: settings.hi3dResolution, hi3d_texture: !!settings.hi3dTexture, ...(settings.ultratex === 'ultratex' ? { texture: 'ultratex', ultratex_steps: settings.ultratexSteps, ultratex_guided: !!settings.ultratexGuided } : {}), watertight: !!settings.watertight, watertight_across: settings.watertightAcross, watertight_tool: settings.watertightTool, watertight_wativo_res: settings.wativoRes })),
       rigged: () => startRig(asset, settings.rigSource),
       bind: () => startBind(card.querySelector('[data-bindfile]')?.files[0]),
       animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread, settings.inPlace),
@@ -489,18 +591,27 @@ export function wireStep(card, stepId, asset, ctx) {
 /** The step as a one-step chain from the asset's own files, or null when it cannot be one.
  *  A chain is what a reopened studio picks back up, so long runs (Finish, Hero) survive a reload. */
 export function chainPlan(stepId, asset, settings) {
-  const made = Object.fromEntries(['picture', 'back', 'model', 'finished', 'rigged']
+  const made = Object.fromEntries(['picture', 'back', 'left', 'right', 'model', 'finished', 'rigged']
     .filter((k) => asset[k]).map((k) => [k, asset[k]]));
   const base = { description: asset.name || 'Asset', want: asset.kind === 'prop set' ? 'set' : asset.kind === 'prop' ? 'prop' : 'character' };
   if (stepId === 'back') {
     if (!asset.picture) return null;
     return { ...base, steps: ['back'], made: { picture: asset.picture },
-      backSettings: { seed: freshSeed(), ...(settings.change ? { instruction: settings.change } : {}),
+      backSettings: { seed: settings.change ? freshSeed() : 3,   // one shared seed for the views; a redraw differs
+        ...(settings.change ? { instruction: settings.change } : {}),
         ...(settings.backEngine ? { engine: settings.backEngine } : {}) } };
+  }
+  if (stepId === 'left' || stepId === 'right') {
+    if (!asset.picture) return null;
+    return { ...base, steps: [stepId], made: { picture: asset.picture },
+      backSettings: { seed: 3,                                          // the same seed as the back, so the views stay consistent
+        ...(settings.sideEngine ? { engine: settings.sideEngine } : {}) } };
   }
   if (stepId === 'model') {
     if (!asset.picture) return null;
-    return { ...base, steps: ['model'], made: { picture: asset.picture, ...(asset.back ? { back: asset.back } : {}) },
+    return { ...base, steps: ['model'], made: { picture: asset.picture,
+      ...(asset.back ? { back: asset.back } : {}), ...(asset.left ? { left: asset.left } : {}),
+      ...(asset.right ? { right: asset.right } : {}) },
       engine: settings.backend, modelSeed: freshSeed() };
   }
   if (stepId === 'finished') {
@@ -509,6 +620,10 @@ export function chainPlan(stepId, asset, settings) {
     return { ...base, steps: ['finished'], made: { picture: asset.picture, model: asset.model },
       finishSettings: { ...settings.detail, skip_photo: !settings.photo, marigold: !!settings.marigold, marigold_normals: !!settings.marigoldNormals, photo_fade_normals: !!settings.fadeNormals, skip_edge_fade: !settings.edgeFade,
         skip_nudge: !settings.nudge, texture_size: settings.texture, hi3d: !!settings.hi3d, hi3d_resolution: settings.hi3dResolution || 512, hi3d_texture: !!settings.hi3dTexture,
+        ...(settings.ultratex === 'ultratex'
+          ? { texture: 'ultratex', ultratex_steps: settings.ultratexSteps || 4,
+              ultratex_guided: !!settings.ultratexGuided }
+          : {}),
         watertight: !!settings.watertight, watertight_across: settings.watertightAcross || 300,
         watertight_tool: settings.watertightTool === 'external' ? 'external' : 'own',
         watertight_wativo_res: settings.wativoRes || 512 } };
@@ -675,7 +790,11 @@ async function runInCard(card, starter, ctx, stepId, note) {
   });
   const final = await job.done;
   ctx.onBusy?.(false);
-  if (final.status === 'done') { ctx.onDone?.(stepId, { preset: stepId === 'animated' ? settingsOf(card) : null }); return; }
+  if (final.status === 'done') {
+    try { await ctx.onDone?.(stepId, { preset: stepId === 'animated' ? settingsOf(card) : null }); }
+    catch { /* the reload failed; the job still finished */ }
+    return;
+  }
   const { cancelled, why, log: tail } = jobEnd(final);
   show(cancelled
     ? `<div class="job"><p class="job-msg">${esc(why)}</p><div class="row end"><button class="ghost" data-back>Back</button></div></div>`

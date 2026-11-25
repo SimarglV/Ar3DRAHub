@@ -151,14 +151,14 @@ def test_a_second_job_waits_for_the_first(rig, monkeypatch):
     assert second is not first
 
 
-def test_the_provenance_record_says_noncommercial(rig):
+def test_the_provenance_record_names_mit(rig):
     source = {"license": {"name": "MIT"}, "classification": "commercial-clear"}
     name, sha = ma._input_identity(rig)
     record = ma._record(name, sha, source, "An object walks forward.", 3.0, 1, False)
-    assert record["classification"] == "research-only"
+    assert record["classification"] == "commercial-clear"
     assert record["motion"]["made_with"] == "UniMate"
-    assert record["motion"]["license"]["name"] == "CC BY-NC 4.0"
-    assert "not for commercial use" in record["motion"]["license"]["note"]
+    assert record["motion"]["license"]["name"] == "MIT"
+    assert "yours" in record["motion"]["license"]["note"]
     assert record["motion"]["prompt"] == "An object walks forward."
     assert record["input"]["name"] == rig.name
     # the source's licence travels with it

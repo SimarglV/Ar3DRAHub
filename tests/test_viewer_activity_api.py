@@ -23,9 +23,15 @@ class FakeJobs:
         if method == "POST" and path.endswith("/cancel"):
             return 200, {"ok": True}
         if method == "POST":
-            kind = {"/api/image": "picture", "/api/image/back": "back", "/api/generate": "model", "/api/finish": "finished",
+            kind = {"/api/image": "picture", "/api/image/back": "back", "/api/image/side": "side",
+                    "/api/generate": "model", "/api/finish": "finished",
                     "/api/animate/rig": "rigged", "/api/animate/play": "animated", "/api/motion": "motion",
                     "/api/props": "split"}[path]
+            if kind == "side":
+                try:
+                    kind = json.loads(body.decode()).get("side", "left")
+                except (ValueError, UnicodeDecodeError):
+                    kind = "left"
             if kind == self.refuse:
                 return 409, {"error": "another job is running; wait for it to finish"}
             job_id = f"job-{kind}"
@@ -35,7 +41,9 @@ class FakeJobs:
         kind = self.jobs[path.split("/")[3]]
         if kind == self.fail:
             return 200, {"status": "error", "error": "MemoryError: out of memory", "log_tail": "ggml_noise\nKilled"}
-        made = {"picture": "images/p/pic.png", "back": "images/p/pic__back.png", "model": "pixal3d/m/model.glb",
+        made = {"picture": "images/p/pic.png", "back": "images/p/pic__back.png",
+                "left": "images/p/pic__left.png", "right": "images/p/pic__right.png",
+                "model": "pixal3d/m/model.glb",
                 "finished": "finish/f/finished.glb", "rigged": "animate/r/rigged.glb",
                 "animated": "animate/r/rigged_walk.glb", "motion": "animate/r/rigged_walk.glb"}
         for rel in made.values():
@@ -47,7 +55,7 @@ class FakeJobs:
         if kind in ("finished", "rigged", "animated", "motion"):
             event["path"] = made[kind]
         return 200, {"status": "done", "last_event": event, "log_tail": f"{kind} ok",
-                     "picture": made[kind] if kind in ("picture", "back") else None,
+                     "picture": made[kind] if kind in ("picture", "back", "left", "right") else None,
                      "model": made["model"] if kind == "model" else None}
 
 
@@ -310,6 +318,22 @@ def test_a_front_and_back_character_draws_the_back_then_builds_from_both(tmp_pat
     assert b'name="back"; filename="pic__back.png"' in posts[2][1]
 
 
+def test_a_four_view_character_draws_the_sides_then_builds_from_all_four(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    chain = aa.Chain(title="viking", prompt="a viking", engine="pixal3d", first_move="walk",
+                     steps=["picture", "back", "left", "right", "model", "finished", "rigged", "animated"])
+    runner.submit(chain, background=False)
+    assert chain.status == "done" and chain.made["left"] == "images/p/pic__left.png"
+    posts = [(p, b) for m, p, b in jobs.calls if m == "POST"]
+    assert [p for p, _ in posts][:5] == ["/api/image", "/api/image/back",
+                                         "/api/image/side", "/api/image/side", "/api/generate"]
+    assert json.loads(posts[2][1])["side"] == "left"
+    assert json.loads(posts[3][1])["side"] == "right"
+    assert b'name="left"; filename="pic__left.png"' in posts[4][1]
+    assert b'name="right"; filename="pic__right.png"' in posts[4][1]
+    assert b'name="back"; filename="pic__back.png"' in posts[4][1]
+
+
 def test_an_uploaded_picture_is_kept_in_output_so_its_back_can_be_drawn(tmp_path):
     runner, jobs = _runner(tmp_path)
     chain = aa.Chain(title="mine", engine="pixal3d", steps=["back", "model"],
@@ -391,6 +415,18 @@ def test_a_plan_carries_hi3d_and_its_resolution_to_the_finish_job():
     form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
             "finish_settings": {"value": json.dumps({"hi3d": True, "hi3d_resolution": 1536})}}
     assert aa.chain_from_form(form).finish_settings == {"hi3d": True, "hi3d_resolution": 1536}
+
+
+def test_a_plan_carries_the_ultratex_choice_to_the_finish_job():
+    """The same bug as hi3d, caught by a real studio run: texture=ultratex was sent by the
+    MCP, dropped by FINISH_KEYS, and the finish job silently ran the plain worker."""
+    form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
+            "finish_settings": {"value": json.dumps(
+                {"texture": "ultratex", "ultratex_steps": 4, "ultratex_seed": 7,
+                 "ultratex_guided": True})}}
+    assert aa.chain_from_form(form).finish_settings == {
+        "texture": "ultratex", "ultratex_steps": 4, "ultratex_seed": 7,
+        "ultratex_guided": True}
 
 
 def test_a_plan_without_finish_choices_gets_finishs_defaults(tmp_path):

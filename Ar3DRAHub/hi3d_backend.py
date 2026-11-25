@@ -34,6 +34,9 @@ class Hi3DOptions:
     steps: int = 25
     seed: int = 0
     cpu_offload: bool = True
+    #: Refine 512 -> 1024 -> 1536, each rung feeding the next, instead of one
+    #: refinement of the original mesh. The chain the PixelArtistry workflow uses.
+    cascade: bool = False
 
 
 @dataclass(frozen=True)
@@ -302,6 +305,22 @@ def model_dir_present() -> tuple[bool, Path, list[str]]:
 RESOLUTION_LADDER = (1536, 1024, 512)
 
 
+#: The rungs a cascade refine climbs, lightest first. A cascade refines the coarse mesh
+#: at 512, then that result at 1024, then that at 1536 -- coarse to fine, the chain the
+#: PixelArtistry workflow uses -- instead of re-refining the original mesh each time.
+CASCADE_RUNGS = (512, 1024, 1536)
+
+
+def cascade_rungs(requested: int) -> list[int]:
+    """The rungs a cascade climbs, from 512 up to `requested`."""
+    requested = int(requested)
+    if requested not in CASCADE_RUNGS:
+        raise ValueError(
+            f"cascade resolution must be one of {', '.join(map(str, CASCADE_RUNGS))}"
+        )
+    return [rung for rung in CASCADE_RUNGS if rung <= requested]
+
+
 def _run_refinement(command: list[str], repo: Path, log: Any | None,
                     on_process: Callable[[subprocess.Popen | None], None] | None) -> None:
     """Run upstream's refine command, streaming its output when `log` is given.
@@ -339,6 +358,61 @@ def _run_refinement(command: list[str], repo: Path, log: Any | None,
         raise RuntimeError(f"Hi3D refinement failed with exit code {code}")
 
 
+def _run_cascade(prepared: Path, coarse_mesh: Path, output_dir: Path,
+                 output_path: Path, python: Path, requested: int,
+                 options: Hi3DOptions, model_dir: str, dino_dir: str, clip_dir: str,
+                 repo: Path, log: Any | None,
+                 on_process: Callable[[subprocess.Popen | None], None] | None,
+                 check_quality: bool) -> Hi3DResult:
+    """The cascade refine: each rung refines the previous rung's output, lightest first.
+
+    The final rung lands on the usual `output_path`; every earlier rung keeps its own
+    file (`*_hi3d_512.glb`), so the chain is inspectable. The coverage gate compares
+    each rung against the mesh it refined; a failed rung keeps the previous one instead
+    of shipping a mesh that lost part of the model.
+    """
+    rungs = cascade_rungs(requested)
+    current = coarse_mesh
+    for position, rung in enumerate(rungs):
+        target = (output_path if position + 1 == len(rungs)
+                  else output_dir / f"{output_path.stem}_{rung}{output_path.suffix}")
+        command = build_refine_command(
+            python,
+            repo / "Hi3Dv1.0" / "demo" / "refine_mesh.py",
+            prepared,
+            current,
+            target,
+            Hi3DOptions(repo=options.repo, resolution=rung, steps=options.steps,
+                        seed=options.seed, cpu_offload=options.cpu_offload),
+            model_dir,
+            dino_dir,
+            clip_dir,
+        )
+        _run_refinement(command, repo, log, on_process)
+        if not target.is_file():
+            raise RuntimeError(f"Hi3D reported success but did not create {target}")
+        if not check_quality:
+            current = target
+            continue
+        score = surface_coverage(current, target)
+        log and log(f"Hi3D {rung}: rebuilt {score:.1%} of the input surface")
+        if score >= COVERAGE_THRESHOLD:
+            current = target
+            continue
+        if position == 0:
+            raise RefineQualityError(
+                f"Hi3D rebuilt only {score:.0%} of the model's surface at {rung}: "
+                "large parts of it are missing, not just seams. Finish without Hi3D, "
+                "or report this run — the gate stops here rather than ship a broken mesh."
+            )
+        kept = rungs[position - 1]
+        log and log(f"Hi3D {rung}: only {score:.0%} of the model's surface came back; "
+                    f"keeping the {kept} rung instead")
+        return Hi3DResult(output_dir / f"{output_path.stem}_{kept}{output_path.suffix}",
+                          kept)
+    return Hi3DResult(output_path, rungs[-1])
+
+
 def generate_hi3d(
     image: Path,
     coarse_mesh: Path,
@@ -362,6 +436,10 @@ def generate_hi3d(
     why. On the Windows SDPA port the 1536 rung loses large slabs of the subject;
     the gate steps down to 1024 (which the attention-port fix repairs) instead of
     presenting a holey mesh as finished.
+
+    With `options.cascade` the refine climbs 512 -> 1024 -> 1536 (up to the requested
+    rung), each rung refining the previous rung's output, so detail accumulates
+    coarse to fine instead of one refinement of the original mesh doing all the work.
     """
     refusal = platform_refusal()
     if refusal:
@@ -406,6 +484,12 @@ def generate_hi3d(
     output_path = output_dir / f"{image.stem}_hi3d.glb"
     python = venv_python(repo)
     requested = int(options.resolution)
+    if options.cascade:
+        return _run_cascade(
+            prepared, coarse_mesh, output_dir, output_path, python, requested,
+            options, str(model_dir), dino_dir, clip_dir, repo,
+            log, on_process, check_quality,
+        )
     rungs = [rung for rung in RESOLUTION_LADDER if rung <= requested]
 
     for position, rung in enumerate(rungs):

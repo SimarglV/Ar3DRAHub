@@ -51,7 +51,7 @@ useful for asking "is this model even broken?" before spending three minutes.
 ## Licensing
 
 The maths is **MIT**, in `Ar3DRAHub/watertight.py`. It runs on numpy, scipy, trimesh and
-scikit-image — all BSD/MIT. **No CGAL, no GPL, nothing fetched from the network.**
+scikit-image — all MIT. **No external tool, nothing fetched from the network.**
 
 The sidecar records the rebuild as an MIT *component*, never as a new licence term: MIT
 material adds no condition, so the output keeps its input's licence and classification.
@@ -66,19 +66,16 @@ and pins torch 2.8.0, neither of which the studio's own 3.11 environment can hos
 studio then finds both by itself, and the Watertight block in Finish grows a second
 checkbox labelled **Faster rebuild**.
 
-WTiVo's own code is **MIT**, but its native extension is built on **CGAL, which is
-GPL-3.0-or-later**. The studio presents the engine as a speed choice, not as a licence
-negotiation: it is not one. The tool ran as a separate process, so no GPL code is linked
-into this repository or shipped with the result, and **the result keeps the input's
-licence**.
+WTiVo's own code is **MIT**, and so is its native extension. The tool runs as a
+separate process, and **the result keeps the input's licence**.
 
 What changes is the record. `provenance.json` gains an `external_tools` entry:
 
 ```json
 "external_tools": [{
   "component": "WTiVo (WatertightVoxel, SimarglV)",
-  "license": "MIT (Python) + GPL-3.0-or-later (native extension, via CGAL)",
-  "copyleft": true
+  "license": "MIT",
+  "copyleft": false
 }]
 ```
 
@@ -105,7 +102,7 @@ and the cleanup under a `postprocess` key of its own, MIT.
 
 ## How it works
 
-The same idea the GPL tools use — resample to a volume, extract one surface — built from
+The same idea WTiVo uses — resample to a volume, extract one surface — built from
 permissive parts:
 
 1. **Near-surface distances only.** Cells within a couple of voxels of the surface get their

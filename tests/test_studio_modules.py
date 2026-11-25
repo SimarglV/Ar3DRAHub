@@ -610,6 +610,20 @@ def test_front_and_back_adds_a_back_picture_before_the_3d_model():
     assert out["label"] == "Back picture"
 
 
+def test_four_views_add_the_back_and_both_sides_before_the_model():
+    out = _run("plan.js", """console.log(JSON.stringify({
+      ideaChar: m.planFor('idea', 'character', { sides: true }),
+      pictureProp: m.planFor('picture', 'prop', { sides: true }),
+      ideaSet: m.planFor('idea', 'set', { sides: true }),
+      left: m.STEP_LABELS.left,
+      right: m.STEP_LABELS.right,
+    }));""")
+    assert out["ideaChar"] == ["picture", "back", "left", "right", "model", "finished", "rigged", "animated"]
+    assert out["pictureProp"] == ["back", "left", "right", "model", "finished"]
+    assert out["ideaSet"] == ["picture", "model", "split"]        # a sheet of nine has no sides
+    assert out["left"] == "Left view" and out["right"] == "Right view"
+
+
 @needs_node
 def test_the_prompt_gets_the_goals_wording_and_warnings_for_trouble_words():
     out = _run("plan.js", f"""
@@ -1561,6 +1575,55 @@ def test_steps_panel_runs_go_through_a_chain_so_a_reload_picks_them_up():
 
 
 @needs_node
+def test_the_ultratex_choice_travels_through_the_finish_chain():
+    out = _run("steps.js", f"""
+      const knight = {json.dumps(KNIGHT)};
+      const plain = {{ backend: 'pixal3d', detail: {{ faces: 20000 }}, photo: false, edgeFade: true, nudge: true,
+                      texture: 2048, ultratex: 'keep', ultratexSteps: 4, ultratexGuided: false }};
+      const guided = {{ ...plain, ultratex: 'ultratex', ultratexSteps: 8, ultratexGuided: true }};
+      console.log(JSON.stringify({{ plain: m.chainPlan('finished', knight, plain),
+                                    guided: m.chainPlan('finished', knight, guided) }}));""")
+    assert "texture" not in out["plain"]["finishSettings"]       # keep sends nothing extra
+    assert "ultratex_steps" not in out["plain"]["finishSettings"]
+    assert out["guided"]["finishSettings"]["texture"] == "ultratex"
+    assert out["guided"]["finishSettings"]["ultratex_steps"] == 8
+    assert out["guided"]["finishSettings"]["ultratex_guided"] is True
+
+
+@needs_node
+def test_the_finish_panel_offers_ultratex_when_the_server_says_so():
+    out = _run("steps.js", """
+      const knight = { kind: 'character', picture: 'images/k/k.png', model: 'a/k.glb', finished: null };
+      const withUltra = m.stepBody('finished', knight, { blenderReady: true, ultratexReady: true });
+      const without = m.stepBody('finished', knight, { blenderReady: true, ultratexReady: false,
+        ultratexNote: 'needs the 36 GB setup' });
+      console.log(JSON.stringify({
+        checkbox: /data-k="ultratex"/.test(withUltra),
+        guided: /data-k="ultratexguided"/.test(withUltra),
+        steps: /data-k="ultratexsteps"/.test(withUltra),
+        note: /needs the 36 GB setup/.test(without),
+        absent: /data-k="ultratex"/.test(without) }));""")
+    assert out == {"checkbox": True, "guided": True, "steps": True, "note": True, "absent": False}
+
+
+@needs_node
+def test_the_finish_sub_knobs_nest_under_their_parent():
+    """Pixel Match's three switches and Marigold's normals are sub-knobs: they ride with
+    their parent, hidden until it is on, instead of floating in Advanced as if unrelated."""
+    out = _run("steps.js", """
+      const knight = { kind: 'character', picture: 'images/k/k.png', model: 'a/k.glb', finished: null };
+      const html = m.stepBody('finished', knight, { blenderReady: true });
+      console.log(JSON.stringify({
+        edgeFadeNested: /data-photo-sub hidden><input type="checkbox" data-k="edgefade"/.test(html),
+        nudgeNested: /data-photo-sub hidden><input type="checkbox" data-k="nudge"/.test(html),
+        fadeNested: /data-photo-sub hidden><input type="checkbox" data-k="fadenormals"/.test(html),
+        normalsNested: /data-marigold-sub hidden><input type="checkbox" data-k="marigoldnormals"/.test(html),
+        marigoldSaysOrder: /runs first, so the generated paint is never de-lit/.test(html) }));""")
+    assert out == {"edgeFadeNested": True, "nudgeNested": True, "fadeNested": True,
+                   "normalsNested": True, "marigoldSaysOrder": True}
+
+
+@needs_node
 def test_a_plan_s_files_and_settings_travel_to_the_server():
     out = _run("create.js", """
       const form = m.planForm({ description: 'k', steps: ['finished'], finishSettings: { hero: true },
@@ -1684,6 +1747,25 @@ def test_a_machine_preset_sets_finish_detail_and_texture_and_hero_wins():
 
 
 @needs_node
+def test_a_machine_preset_carries_the_finish_extras_into_the_plan():
+    out = _run("create.js", """
+      console.log(JSON.stringify([
+        m.presetFinishSettings({ finish_detail: 'high', texture_size: 4096,
+          marigold: true, marigold_normals: true, hi3d: true, hi3d_resolution: 1024,
+          hi3d_texture: true, texture: 'ultratex', ultratex_steps: 8, ultratex_guided: true,
+          watertight: true }),
+        m.presetFinishSettings({ finish_detail: '20000', texture_size: 2048,
+          marigold: false, hi3d: false, texture: 'keep', watertight: false }),
+      ]));""")
+    assert out[0] == {"faces": 50000, "high_detail": True, "texture_size": 4096,
+                      "marigold": True, "marigold_normals": True,
+                      "hi3d": True, "hi3d_resolution": 1024, "hi3d_texture": True,
+                      "texture": "ultratex", "ultratex_steps": 8, "ultratex_guided": True,
+                      "watertight": True}
+    assert out[1] == {"faces": 20000, "texture_size": 2048}   # off extras send nothing
+
+
+@needs_node
 def test_create_offers_your_own_back_only_where_pixal3d_can_use_it():
     out = _run("create.js", """
       const fb = { ready: false, shape_ready: true };
@@ -1704,18 +1786,87 @@ def test_create_offers_your_own_back_only_where_pixal3d_can_use_it():
 @needs_node
 def test_draw_the_back_again_shows_for_a_front_and_plans_a_one_step_back_run():
     out = _run("steps.js", """
-      const ctx = { frontBack: { ready: true } };
+      const ctx = { pictureEngines: [{ id: 'flux', can_draw_backs: true }] };
       const withBack = { picture: 'images/a/a.png', back: 'images/a/a__back.png', kind: 'character' };
       const plan = m.chainPlan('back', withBack, { change: 'a red cloak' });
       console.log(JSON.stringify({
         again: m.backRedo(withBack, ctx).includes('Draw the back again'),
         first: m.backRedo({ ...withBack, back: null }, ctx).includes('Draw a back picture'),
-        none: m.backRedo({ ...withBack, back: null }, { frontBack: { ready: false } }),
+        none: m.backRedo({ ...withBack, back: null }, { pictureEngines: [] }),
         sheet: m.backRedo({ ...withBack, kind: 'prop set' }, ctx),
         steps: plan.steps, made: plan.made, change: plan.backSettings.instruction, seeded: Number.isInteger(plan.backSettings.seed),
         plain: 'instruction' in m.chainPlan('back', withBack, { change: '' }).backSettings }));""")
     assert out == {"again": True, "first": True, "none": "", "sheet": "", "steps": ["back"],
                    "made": {"picture": "images/a/a.png"}, "change": "a red cloak", "seeded": True, "plain": False}
+
+
+@needs_node
+def test_draw_the_sides_shows_and_the_model_builds_from_all_four():
+    out = _run("steps.js", """
+      const ctx = { pictureEngines: [{ id: 'flux', installed: true, can_draw_backs: true }] };
+      const front = { picture: 'images/a/a.png', kind: 'character' };
+      const four = { ...front, back: 'images/a/a__back.png',
+                     left: 'images/a/a__left.png', right: 'images/a/a__right.png' };
+      console.log(JSON.stringify({
+        left: m.sideRedo(front, ctx).includes('Draw the left side'),
+        right: m.sideRedo(front, ctx).includes('Draw the right side'),
+        again: m.sideRedo({ ...front, left: 'images/a/a__left.png' }, { pictureEngines: [] }).includes('Draw the left side again'),
+        none: m.sideRedo(front, { pictureEngines: [] }),
+        sheet: m.sideRedo({ ...front, kind: 'prop set' }, ctx),
+        leftSteps: m.chainPlan('left', front, {}).steps,
+        leftMade: m.chainPlan('left', front, {}).made,
+        modelMade: m.chainPlan('model', four, { backend: 'pixal3d' }).made,
+        sideEngine: m.chainPlan('left', front, { sideEngine: 'qwen' }).backSettings.engine,
+      }));""")
+    assert out == {"left": True, "right": True, "again": True, "none": "", "sheet": "",
+                   "leftSteps": ["left"], "leftMade": {"picture": "images/a/a.png"},
+                   "modelMade": {"picture": "images/a/a.png", "back": "images/a/a__back.png",
+                                 "left": "images/a/a__left.png", "right": "images/a/a__right.png"},
+                   "sideEngine": "qwen"}
+
+
+@needs_node
+def test_the_views_share_one_seed_and_a_back_redraw_differs():
+    out = _run("steps.js", """
+      const front = { picture: 'images/a/a.png', kind: 'character' };
+      console.log(JSON.stringify({
+        back: m.chainPlan('back', front, {}).backSettings.seed,
+        left: m.chainPlan('left', front, {}).backSettings.seed,
+        right: m.chainPlan('right', front, {}).backSettings.seed,
+        redraw: Number.isInteger(m.chainPlan('back', front, { change: 'a cloak' }).backSettings.seed),
+      }));""")
+    assert out == {"back": 3, "left": 3, "right": 3, "redraw": True}
+
+
+@needs_node
+def test_marigold_albedo_shows_only_when_installed_and_there_is_a_picture():
+    out = _run("steps.js", """
+      const on = { marigoldReady: true };
+      const off = { marigoldReady: false };
+      const asset = { picture: 'images/a/a.png', kind: 'character' };
+      console.log(JSON.stringify([
+        m.marigoldAlbedo(asset, on).includes('De-light the picture'),
+        m.marigoldAlbedo(asset, on).includes('data-marigold="front"'),
+        m.marigoldAlbedo(asset, off),
+        m.marigoldAlbedo({ ...asset, kind: 'prop set' }, on),
+        m.marigoldAlbedo({ ...asset, picture: null }, on),
+      ]));""")
+    assert out == [True, True, "", "", ""]
+
+
+@needs_node
+def test_marigold_albedo_offers_every_view_the_asset_has():
+    out = _run("steps.js", """
+      const ctx = { marigoldReady: true };
+      const asset = { picture: 'images/a/a.png', back: 'images/a/a__back.png',
+                      left: 'images/a/a__left.png', right: 'images/a/a__right.png', kind: 'character' };
+      const html = m.marigoldAlbedo(asset, ctx);
+      console.log(JSON.stringify([
+        html.includes('data-marigold="front"'), html.includes('data-marigold="back"'),
+        html.includes('data-marigold="left"'), html.includes('data-marigold="right"'),
+        m.marigoldAlbedo({ picture: 'images/a/a.png', kind: 'character' }, ctx).includes('data-marigold="back"'),
+      ]));""")
+    assert out == [True, True, True, True, False]   # no back view: only the front is offered
 
 
 @needs_node
@@ -1729,11 +1880,11 @@ def test_the_back_brush_shows_with_a_back_and_any_engine_and_maps_strokes_to_the
         m.backBrush(asset, qwen).includes('Fix part of the back'),
         m.backBrush({ ...asset, back: null }, qwen),
         m.backBrush(asset, { pictureEngines: [] }),
-        m.backBrush(asset, qwen).includes('data-brushengine'),        // one engine: nothing to choose
+        m.backBrush(asset, qwen).includes('data-brushengine'),        // one engine: still pick that one or "same"
         m.backBrush(asset, both).includes('data-brushengine'),
         m.backRedo(asset, both).includes('data-backengine'),
         m.chainPlan('back', asset, { change: '', backEngine: 'qwen' }).backSettings.engine]));""")
-    assert out == [True, "", "", False, True, True, "qwen"]
+    assert out == [True, "", "", True, True, True, "qwen"]
     point = _run("brush.js", "console.log(JSON.stringify(m.toPicture(100, 50, { w: 400, h: 400 }, { w: 1024, h: 1024 })));")
     assert point == [256, 128]
 

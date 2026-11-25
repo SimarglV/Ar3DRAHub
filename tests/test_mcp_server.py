@@ -33,8 +33,8 @@ CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True,
     {"id": "pixal3d", "kind": "3d", "rank": 1, "state": "ready", "license": {"name": "MIT"}},
     {"id": "qwen", "kind": "image", "rank": 1, "state": "ready"},
     {"id": "hunyuan", "kind": "3d", "rank": 2, "state": "missing", "supported_here": True, "label": "Hunyuan3D",
-     "license": {"name": "Tencent Hunyuan Community", "url": "https://example.test/licence"},
-     "caveat": "Not licensed in the EU, UK or South Korea.", "human_expected": "12 GB", "best_for": "Detail",
+     "license": {"name": "MIT", "url": "https://example.test/licence"},
+     "caveat": "EU, UK and South Korea note.", "human_expected": "12 GB", "best_for": "Detail",
      "weights": [{"label": "shape", "source": "tencent/x", "human_expected": "12 GB", "present": False}]},
 ]}
 PRESETS = {"installed": True, "aliases": {"wave_old": "wave"},
@@ -304,7 +304,7 @@ def test_run_status_without_an_id_reports_the_latest_run(studio):
 def test_install_asks_first_and_downloads_nothing_without_confirm(studio):
     plan = ms.install_backend(studio, backend_id="hunyuan")
     assert studio.http.posts == []
-    assert plan["total_size"] == "12 GB" and "EU" in plan["caveat"] and plan["licence"].startswith("Tencent")
+    assert plan["total_size"] == "12 GB" and plan["licence"] == "MIT"
     assert "confirm=true" in plan["to_start"]
     ms.install_backend(studio, backend_id="hunyuan", confirm=True)
     assert studio.http.posts[-1][0] == "api/setup/hunyuan/download"
@@ -442,6 +442,21 @@ def test_nudge_is_on_unless_asked_and_means_nothing_without_pixel_match():
     assert ms.finish_choices("game", False, nudge=False) == {"faces": 20000, "skip_photo": True}
 
 
+def test_ultratex_guided_travels_with_the_texture_choice(studio):
+    ms.create(studio, want="prop", description="a barrel",
+              advanced={"texture": "ultratex", "ultratex_guided": True})
+    assert json.loads(sent(studio)["finish_settings"]) == {
+        "texture": "ultratex", "ultratex_steps": 4, "ultratex_guided": True}
+
+
+def test_ultratex_without_guided_stays_plain(studio):
+    ms.create(studio, want="prop", description="a barrel",
+              advanced={"texture": "ultratex"})
+    settings = json.loads(sent(studio)["finish_settings"])
+    assert settings["texture"] == "ultratex"
+    assert "ultratex_guided" not in settings
+
+
 def test_nudge_travels_with_the_plan(studio):
     ms.create(studio, want="prop", description="a barrel", advanced={"nudge": False})
     assert json.loads(sent(studio)["finish_settings"]) == {"skip_nudge": True}
@@ -527,8 +542,8 @@ def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
     assert set(out["advanced"]) == {"edge_fade", "nudge", "marigold", "marigold_normals", "photo_fade_normals",
                                     "hi3d", "hi3d_resolution", "hi3d_texture", "watertight", "watertight_across",
-                                    "watertight_tool", "wativo", "wativo_res",
-                                    "texture_size", "rig_from", "speed",
+                                    "watertight_tool", "wativo", "wativo_res", "texture", "ultratex_steps",
+                                    "ultratex_guided", "texture_size", "rig_from", "speed",
                                     "arms_away", "in_place", "keep_everything"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
@@ -539,7 +554,7 @@ def test_every_studio_control_has_an_mcp_twin():
     source = "".join((REPO / "viewer" / "studio" / f).read_text() for f in ("steps.js", "create.js"))
     controls = set(re.findall(r'data-k="(\w+)"', source)) - {"licence"}   # licence is a label, not a knob
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
-            "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
+            "frontback": "front_and_back", "sides": "sides", "recipe": "add_wording", "move": "move", "text": "description",
             "edgefade": "edge_fade", "nudge": "nudge", "marigold": "marigold", "marigoldnormals": "marigold_normals",
             "fadenormals": "photo_fade_normals", "texture": "texture_size", "rigsource": "rig_from",
             "speed": "speed", "spread": "arms_away", "keep": "keep_everything", "inplace": "in_place",
@@ -547,6 +562,8 @@ def test_every_studio_control_has_an_mcp_twin():
             "motiontext": "motion_prompt", "mreps": "motion_repetitions",
             "mcfg": "motion_cfg_scale", "mloop": "motion_loop",
             "hi3d": "hi3d", "hi3dres": "hi3d_resolution", "hi3dtex": "hi3d_texture",
+            "ultratex": "texture", "ultratexguided": "ultratex_guided",
+            "ultratexsteps": "ultratex_steps",
             "watertight": "watertight", "wtacross": "watertight_across", "wttool": "watertight_tool",
             "wativo": "wativo", "wativores": "wativo_res"}
     missing = sorted(controls - set(twin))
@@ -595,15 +612,31 @@ def test_presets_cover_the_four_machine_tiers():
     for spec in ms.PRESETS.values():
         assert "for" in spec and "finish_detail" in spec and "texture_size" in spec
         assert spec["texture_size"] in {1024, 2048, 4096}
+        # every preset carries the whole finish ladder, off or on
+        for key in ms.FINISH_KEYS:
+            assert key in spec, key
     # each rung steps up the detail and the texture size
     assert [ms.PRESETS[n]["texture_size"] for n in ("minimal", "normal", "high", "ultra")] == [1024, 2048, 4096, 4096]
     assert [ms.PRESETS[n]["finish_detail"] for n in ("minimal", "normal", "high", "ultra")] == ["light", "game", "more", "high"]
+    # the extras climb with the machine: marigold at high, everything at ultra
+    assert [ms.PRESETS[n]["marigold"] for n in ("minimal", "normal", "high", "ultra")] == [False, False, True, True]
+    assert [ms.PRESETS[n]["hi3d"] for n in ("minimal", "normal", "high", "ultra")] == [False, False, True, True]
+    assert [ms.PRESETS[n]["texture"] for n in ("minimal", "normal", "high", "ultra")] == ["keep", "keep", "keep", "ultratex"]
+    assert [ms.PRESETS[n]["watertight"] for n in ("minimal", "normal", "high", "ultra")] == [False, False, False, True]
+
+
+ULTRA_ADVANCED = {"texture_size": 4096, "marigold": True, "marigold_normals": True,
+                  "hi3d": True, "hi3d_resolution": 1024, "hi3d_texture": True,
+                  "texture": "ultratex", "ultratex_steps": 8, "ultratex_guided": True,
+                  "watertight": True, "watertight_across": 300}
 
 
 def test_apply_preset_fills_unset_knobs_and_explicit_arguments_win():
-    assert ms.apply_preset("ultra") == ("flux", True, "high", 4, 5.0, {"texture_size": 4096})
+    ultra_apply = {key: value for key, value in ULTRA_ADVANCED.items() if key != "watertight_across"}
+    assert ms.apply_preset("ultra") == ("flux", True, "high", 4, 5.0, ultra_apply)
     out = ms.apply_preset("normal", picture_engine="qwen", front_and_back=False, finish_detail="game",
                           motion_repetitions=1, motion_cfg_scale=3.0, advanced={"texture_size": 2048})
+    # normal carries no extras, and the caller's texture size wins over the preset's
     assert out == ("qwen", False, "game", 1, 3.0, {"texture_size": 2048})
     with pytest.raises(ms.StudioError, match="preset is one of"):
         ms.apply_preset("mega")
@@ -612,10 +645,10 @@ def test_apply_preset_fills_unset_knobs_and_explicit_arguments_win():
 def test_a_preset_sets_the_plan_and_an_argument_rides_over_it(studio):
     ms.create(studio, want="character", description="a knight", preset="ultra")
     form = sent(studio)
-    assert json.loads(form["finish_settings"]) == {"faces": 50000, "high_detail": True, "texture_size": 4096}
+    assert json.loads(form["finish_settings"]) == {"faces": 50000, "high_detail": True, **ULTRA_ADVANCED}
     assert form["picture_engine"] == "flux"
     ms.create(studio, want="character", description="a knight", preset="ultra", finish_detail="game")
-    assert json.loads(sent(studio)["finish_settings"]) == {"faces": 20000, "texture_size": 4096}
+    assert json.loads(sent(studio)["finish_settings"]) == {"faces": 20000, **ULTRA_ADVANCED}
 
 
 def test_the_minimal_preset_uses_the_lighter_engine_and_skips_the_back(studio, monkeypatch):
@@ -628,10 +661,19 @@ def test_the_minimal_preset_uses_the_lighter_engine_and_skips_the_back(studio, m
     assert json.loads(form["finish_settings"]) == {"faces": 10000, "texture_size": 1024}
 
 
+def test_a_high_preset_turns_the_quality_extras_on(studio):
+    ms.create(studio, want="prop", description="a barrel", preset="high")
+    settings = json.loads(sent(studio)["finish_settings"])
+    assert settings["faces"] == 40000
+    assert settings["marigold"] is True and settings["hi3d"] is True
+    assert settings["hi3d_resolution"] == 512 and settings["hi3d_texture"] is True
+    assert "texture" not in settings            # UltraTex stays off until ultra
+
+
 def test_continue_asset_can_take_a_preset(studio):
     ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="finished", again=True, preset="ultra")
     assert json.loads(sent(studio)["finish_settings"]) == {"faces": 50000, "high_detail": True,
-                                                           "texture_size": 4096}
+                                                           **ULTRA_ADVANCED}
 
 
 def test_an_unknown_preset_is_refused_up_front(studio):
@@ -649,6 +691,11 @@ def test_catalog_presets_give_the_studio_the_same_tiers_in_its_own_terms():
     assert rows["minimal"]["finish_detail"] == "10000"
     assert [rows[n]["label"] for n in ("minimal", "normal", "high", "ultra")] == ["Minimal", "Normal", "High", "Ultra"]
     assert set(STUDIO_DETAIL) == {"light", "game", "more", "high"}
+    # the finish extras ride along for the studio's Create sheet too
+    assert rows["ultra"]["texture"] == "ultratex" and rows["ultra"]["ultratex_guided"] is True
+    assert rows["ultra"]["hi3d"] is True and rows["ultra"]["hi3d_resolution"] == 1024
+    assert rows["ultra"]["watertight"] is True and rows["ultra"]["marigold_normals"] is True
+    assert rows["normal"]["marigold"] is False and rows["normal"]["texture"] == "keep"
 
 
 # --------------------------------------------------------------------------- skins
@@ -929,6 +976,18 @@ def test_create_sends_your_own_back_and_draws_none(studio, tmp_path):
     _, files = studio.http.posts[-1]
     assert files["back_file"][0] == "orc-back.png" and files["back_file"][1] == b"back"
     assert "back" not in out["steps"] and "model" in out["steps"] and out["engine"] == "pixal3d"
+
+
+def test_sides_builds_four_views(studio):
+    out = ms.create(studio, want="prop", description="a barrel", sides=True)
+    assert json.loads(sent(studio)["steps"]) == ["picture", "back", "left", "right", "model", "finished"]
+
+
+def test_sides_is_refused_with_your_own_back(studio, tmp_path):
+    front, back = tmp_path / "orc.png", tmp_path / "orc-back.png"
+    front.write_bytes(b"front"), back.write_bytes(b"back")
+    with pytest.raises(ms.StudioError, match="drop back_image_path"):
+        ms.create(studio, want="prop", image_path=str(front), back_image_path=str(back), sides=True)
 
 
 @pytest.mark.parametrize("kwargs, error", [

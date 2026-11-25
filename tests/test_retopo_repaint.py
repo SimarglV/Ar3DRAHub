@@ -441,8 +441,8 @@ def test_worker_preserves_provenance_on_resume(tmp_path, monkeypatch, paint):
     record = p.read_model_record(output)
     assert record["source_record"]["license"]["name"] == "Shape"
     if paint:
-        assert record["component_records"][0]["components"][0]["license"].startswith("Tencent")
-        assert any("EU" in term for term in record["license"]["conditions"])
+        assert record["component_records"][0]["components"][0]["license"] == "MIT"
+        assert record["license"]["conditions"] == ["shape terms"]
 
 
 def test_worker_rejects_malformed_explicit_record_before_work(tmp_path, monkeypatch):

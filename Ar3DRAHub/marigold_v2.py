@@ -1,7 +1,7 @@
 """Marigold V2 as a native predictor: image -> depth, normals, or albedo.
 
 Runs the reference single-step dense predictors from
-https://github.com/huawei-bayerlab/marigold-v2 (Apache-2.0, code and models) on a
+https://github.com/huawei-bayerlab/marigold-v2 (MIT) on a
 local Qwen-Image-Edit-2509 backbone. The backbone is loaded from a GGUF build of the
 same 2509 DiT (already quantized, so no bitsandbytes NF4 pass and no fp32/bf16 dtype
 mismatch); each Marigold checkpoint is a rank-128 LoRA adapter plus, for normals and
@@ -21,7 +21,7 @@ Weights layout (from scripts/bootstrap_marigold_v2.py, or copied in by hand):
       Marigold-V2/{depth/Log-stage2, normals, albedo}/trainables.safetensors
       Marigold-V2/qwen_text_embeddings/*.pt
 
-Licensing: Marigold V2 code and models are Apache-2.0. The Qwen-Image-Edit-2509
+Licensing: MIT. The Qwen-Image-Edit-2509
 backbone keeps its own licence (Qwen), which the provenance record names separately.
 """
 

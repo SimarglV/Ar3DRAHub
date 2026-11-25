@@ -173,9 +173,9 @@ NOINLINE_PROBE_SOURCE = (
 BASIC_ROCM = list(BASIC)
 
 LICENCE = (
-    "TRELLIS.2: MIT (code + weights). DINOv3: DINOv3 License, gated: request access at\n"
+    "TRELLIS.2: MIT. The DINOv3 encoder is gated: request access at\n"
     f"  https://huggingface.co/{GATED} and run `hf auth login`.\n"
-    "  nvdiffrast: NVIDIA Source Code License, from the dmonkman ROCm port.\n"
+    "  nvdiffrast: MIT, from the dmonkman ROCm port.\n"
     "  BRIA RMBG-2.0, which upstream loads by default, is patched out and never fetched."
 )
 

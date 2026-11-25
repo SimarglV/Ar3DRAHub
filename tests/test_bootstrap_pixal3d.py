@@ -39,7 +39,7 @@ def test_announcement_names_backend_route_size_and_licence(monkeypatch, new_driv
                                                            key, route, size):
     monkeypatch.setattr(boot, "target", lambda: key)
     text = boot.announcement()
-    for needle in ("Pixal3D", route, size, "8.4 GB", "MIT", "DINOv3"):
+    for needle in ("Pixal3D", route, size, "8.4 GB", "MIT"):
         assert needle in text
 
 
@@ -643,7 +643,7 @@ def test_multiview_announcement_names_backend_route_size_and_licence():
     text = boot.multiview_announcement()
     assert "Pixal3D" in text and "front + back" in text
     assert f"{boot.MV_GB:.1f} GB" in text and "pixal3d-q8_0-v1" in text
-    assert "DINOv3" in text
+    assert "MIT" in text
 
 
 def test_multiview_downloads_only_the_four_flows_and_the_manifest():

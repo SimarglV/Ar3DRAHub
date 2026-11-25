@@ -574,6 +574,24 @@ def test_a_front_only_pixal3d_job_has_no_back(tmp_path):
     assert "--back" not in api._pixal3d_build_args(job)
 
 
+def test_pixal3d_build_args_pass_the_side_views_the_server_saved(tmp_path):
+    settings = api._pixal3d_validate_settings({})
+    settings["back_name"] = "back.png"
+    settings["left_name"] = "left.png"
+    settings["right_name"] = "right.png"
+    job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb",
+                  settings, "pixal3d")
+    args = api._pixal3d_build_args(job)
+    assert args[args.index("--left") + 1] == str(tmp_path / "left.png")
+    assert args[args.index("--right") + 1] == str(tmp_path / "right.png")
+
+
+def test_pixal3d_settings_never_take_side_paths_from_the_client():
+    settings = api._pixal3d_validate_settings({"left_name": "../etc/passwd",
+                                               "right_name": "../etc/passwd"})
+    assert "left_name" not in settings and "right_name" not in settings
+
+
 def test_sf3d_build_args_matches_pipeline_cli(tmp_path):
     job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb",
                    api._sf3d_validate_settings({}), "sf3d")

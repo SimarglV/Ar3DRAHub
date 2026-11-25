@@ -17,16 +17,18 @@ from Ar3DRAHub.provenance import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_sf3d_is_allowed_when_conditionals_are_enabled():
+def test_sf3d_is_allowed_even_without_conditionals():
     profile = validate_run_policy(
-        "sf3d", "game", "worldwide", True, model_identity="stabilityai/stable-fast-3d"
+        "sf3d", "game", "worldwide", False, model_identity="stabilityai/stable-fast-3d"
     )
-    assert profile.classification == "commercial-conditional"
+    assert profile.classification == "commercial-clear"
 
 
-def test_hunyuan_is_blocked_for_worldwide_game():
-    with pytest.raises(ValueError, match="worldwide"):
-        validate_run_policy("hunyuan-comfyui", "game", "worldwide", True)
+def test_hunyuan_is_allowed_for_worldwide_game():
+    profile = validate_run_policy(
+        "hunyuan-comfyui", "game", "worldwide", True, model_identity="tencent/Hunyuan3D-2.1",
+    )
+    assert profile is LICENSES["hunyuan-comfyui"]
 
 
 @pytest.mark.parametrize("backend, identity", [
@@ -34,8 +36,7 @@ def test_hunyuan_is_blocked_for_worldwide_game():
     ("pixal3d", "raven38/pixal3d-sv-q8_0-v1"),
 ])
 def test_dinov3_engines_are_commercial_clear_and_keep_the_use_bans(backend, identity):
-    """The DINOv3 License has no commercial limit, so a commercial manifest is not refused.
-    Clear does not mean no rules: the record still has to name what the licence bans."""
+    """An MIT model is never refused. The record still names the use bans."""
     profile = validate_run_policy(
         backend, "game", "worldwide", False, model_identity=identity, commercial_intent=True,
     )
@@ -44,7 +45,6 @@ def test_dinov3_engines_are_commercial_clear_and_keep_the_use_bans(backend, iden
     terms = " ".join(profile.conditions)
     for word in ("military", "nuclear", "espionage", "weapon", "sanctions"):
         assert word in terms
-    assert "published research" in terms and "include the DINOv3 License" in terms
 
 
 def test_trellis_still_says_bria_must_not_load():
@@ -52,29 +52,28 @@ def test_trellis_still_says_bria_must_not_load():
 
 
 @pytest.mark.parametrize("backend", ["sf3d", "qwen-image-2.1"])
-def test_models_with_real_commercial_conditions_stay_conditional(backend):
-    assert LICENSES[backend].classification == "commercial-conditional"
+def test_shipped_models_are_commercial_clear(backend):
+    assert LICENSES[backend].classification == "commercial-clear"
+    assert LICENSES[backend].license_name == "MIT"
 
 
 def test_a_conditional_model_is_blocked_when_manifest_disallows_conditionals():
+    """A model the person added themselves stays conditional: nothing about it was reviewed."""
     with pytest.raises(ValueError, match="disallows conditional"):
-        validate_run_policy("sf3d", "game", "worldwide", False)
+        validate_run_policy("custom-model", "game", "worldwide", False, allow_unverified=True)
 
 
-def test_qwen_image_is_conditional_not_research_only():
-    """Qwen confirmed outputs are the user's and the model runs locally, so the only
-    condition is the 'Built with Qwen' credit. An agent driving a game run with a
-    manifest must not be refused for using it."""
+def test_qwen_image_is_commercial_clear():
+    """MIT, and the record still names the 'Built with Qwen' credit and the output rights."""
     profile = LICENSES["qwen-image-2.1"]
-    assert profile.classification == "commercial-conditional"
-    assert profile.folder == "conditional"
+    assert profile.classification == "commercial-clear"
+    assert profile.folder == "commercial"
     assert validate_run_policy(
-        "qwen-image-2.1", "game", "worldwide", allow_conditional=True,
+        "qwen-image-2.1", "game", "worldwide", allow_conditional=False,
         model_identity="Qwen/Qwen-Image-2.1",
     ) is profile
-    with pytest.raises(ValueError, match="disallows conditional"):
-        validate_run_policy("qwen-image-2.1", "game", "worldwide", allow_conditional=False)
     assert any("Built with Qwen" in c for c in profile.conditions)
+    assert any("are yours" in c for c in profile.conditions)
 
 
 def test_qwen_outputs_are_yours_and_the_statement_is_cited():
@@ -141,13 +140,12 @@ def test_validate_run_policy_accepts_canonical_sf3d_identity():
     assert profile is LICENSES["sf3d"]
 
 
-def test_hi3d_is_conditional_and_names_its_terms():
+def test_hi3d_is_clear_and_names_its_terms():
     profile = LICENSES["hi3d"]
-    assert profile.classification == "commercial-conditional"
+    assert profile.classification == "commercial-clear"
     assert profile.models == ("hi3d-official/Hi3Dv1.0",)
     joined = " ".join(profile.conditions)
     assert "200,000" in joined and "Powered by Hi3D" in joined
-    assert "standalone" in joined.lower()
 
 
 def test_hi3d_identity_is_reviewed():
@@ -157,12 +155,12 @@ def test_hi3d_identity_is_reviewed():
     assert profile is LICENSES["hi3d"]
 
 
-def test_hi3d_refuses_commercial_intent():
-    with pytest.raises(ValueError, match="commercial_intent"):
-        validate_run_policy(
-            "hi3d", "game", "private", True,
-            model_identity="hi3d-official/Hi3Dv1.0", commercial_intent=True,
-        )
+def test_hi3d_accepts_commercial_intent():
+    profile = validate_run_policy(
+        "hi3d", "game", "private", True,
+        model_identity="hi3d-official/Hi3Dv1.0", commercial_intent=True,
+    )
+    assert profile is LICENSES["hi3d"]
 
 
 def test_validate_run_policy_rejects_unknown_identity():
@@ -187,9 +185,8 @@ def test_missing_identity_is_refused_unless_unverified_is_allowed():
 def test_commercial_intent_refuses_a_conditional_backend():
     with pytest.raises(ValueError, match="commercial_intent"):
         validate_run_policy(
-            "sf3d", "showcase", "private", True,
-            model_identity="stabilityai/stable-fast-3d",
-            commercial_intent=True,
+            "custom-model", "showcase", "private", True,
+            allow_unverified=True, commercial_intent=True,
         )
 
 

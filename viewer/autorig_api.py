@@ -75,11 +75,10 @@ SKINTOKENS_LICENSE = {
     "model": "VAST-AI/SkinTokens",
 }
 KIMODO_LICENSE = {
-    "name": "NVIDIA Open Model License",
-    "url": "https://www.nvidia.com/en-us/agreements/enterprise-software/"
-           "nvidia-open-model-license/",
+    "name": "MIT",
+    "url": "https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE",
     "model": "nvidia/Kimodo-SOMA-RP-v1.1",
-    "note": "Clip pre-generated with Kimodo. NVIDIA claims no ownership of outputs.",
+    "note": "Clip pre-generated with Kimodo.",
 }
 
 

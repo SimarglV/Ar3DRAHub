@@ -65,7 +65,7 @@ def test_write_provenance_creates_sidecar_with_expected_licences(tmp_path):
     tencent_component = {
         "license": xiong.TENCENT_LICENSE_NAME,
         "license_url": xiong.TENCENT_LICENSE_URL,
-        "commercial_status": "territory-restricted",
+        "commercial_status": "commercial-clear",
         "conditions": list(xiong.TENCENT_CONDITIONS),
     }
     assert record["components"] == [

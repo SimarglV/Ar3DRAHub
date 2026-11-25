@@ -3,7 +3,7 @@
 
 A renderer is happy with triangle soup; a slicer, a physics engine and a Boolean are
 not. This closes the hairline gaps between shells and merges the pieces into one
-watertight body, using only numpy, scipy, trimesh and scikit-image (all BSD/MIT).
+watertight body, using only numpy, scipy, trimesh and scikit-image.
 
 The maths lives in `Ar3DRAHub/watertight.py` so it can be tested without a subprocess;
 this file is the command-line wrapper the studio calls.
@@ -20,8 +20,8 @@ A model that is a thin shell stays a thin shell: the wall comes back one voxel t
 never as a filled block. The volume goes up because one voxel is thicker than the
 sub-voxel skin it replaces, not because the inside was poured in.
 
-Licensing: this tool is MIT and the result keeps its input's licence. Nothing here is
-GPL and nothing is fetched from the network.
+Licensing: this tool is MIT and the result keeps its input's licence. Nothing is
+fetched from the network.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="which rebuild runs. 'own' is this repository's MIT module (numpy/scipy/"
              "trimesh/scikit-image, CPU). 'wativo' runs an installed WTiVo checkout on its "
              "own 3.12 environment -- much faster on a CUDA machine, and its geometry path "
-             "goes through CGAL, which is GPL-3.0-or-later. The result keeps the input's "
+             "runs in its own process. The result keeps the input's "
              "licence either way; the record names the tool that ran.",
     )
     parser.add_argument(
@@ -244,8 +244,8 @@ def _run_external(mesh_path: Path, output: Path, args, record: dict | None) -> i
     3.11 and cannot, so which Python runs it is the whole point.
 
     The output keeps the input's licence. The record gains one key the MIT path never
-    writes -- `external_tools` -- naming WTiVo and the GPL it brings with it, because a
-    file that went through CGAL should say so when someone asks what made it.
+    writes -- `external_tools` -- naming WTiVo, because a file rebuilt by it should say
+    so when someone asks what made it.
 
     Absent from the interface on purpose: the studio shows this as a choice between
     "fast" and "this machine", not as a licence negotiation. The fact lives in the JSON,
@@ -407,7 +407,7 @@ def write_sidecar(source: Path, output: Path, record: dict, summary: dict) -> Pa
             "classification": "commercial-clear",
             "commercial_status": "commercial-clear",
             "note": ("Adds no condition to the output; the result keeps the input's licence. "
-                     "Built on numpy, scipy, trimesh and scikit-image, all BSD/MIT. No CGAL."),
+                     "Built on numpy, scipy, trimesh and scikit-image, all MIT."),
         }],
     )
     # The rebuild's own numbers sit beside the licence chain, not inside it: a later

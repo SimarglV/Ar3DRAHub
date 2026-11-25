@@ -317,3 +317,84 @@ def test_the_floor_fails_rather_than_shipping_a_broken_mesh(monkeypatch, tmp_pat
             Hi3DOptions(repo=tmp_path, resolution=1024), log=lambda line: None,
         )
     assert attempts == [1024, 512]
+
+
+def test_cascade_rungs_climb_lightest_first():
+    assert hi3d_backend.cascade_rungs(512) == [512]
+    assert hi3d_backend.cascade_rungs(1024) == [512, 1024]
+    assert hi3d_backend.cascade_rungs(1536) == [512, 1024, 1536]
+    with pytest.raises(ValueError, match="cascade resolution"):
+        hi3d_backend.cascade_rungs(768)
+
+
+def test_a_cascade_chains_each_rung_into_the_next(monkeypatch, tmp_path):
+    import trimesh
+
+    coarse = _ready_install(monkeypatch, tmp_path)
+    attempts = []
+
+    def fake_run(command, repo, log, on_process):
+        attempts.append({
+            "resolution": int(command[command.index("--resolution") + 1]),
+            "coarse": Path(command[command.index("--coarse-mesh") + 1]),
+            "output": Path(command[command.index("--output") + 1]),
+        })
+        trimesh.creation.box().export(attempts[-1]["output"])
+
+    monkeypatch.setattr(hi3d_backend, "_run_refinement", fake_run)
+    result = generate_hi3d(
+        tmp_path / "in.png", coarse, tmp_path,
+        Hi3DOptions(repo=tmp_path, resolution=1024, cascade=True),
+        check_quality=False,
+    )
+    assert [a["resolution"] for a in attempts] == [512, 1024]
+    assert attempts[0]["coarse"] == coarse
+    assert attempts[1]["coarse"] == tmp_path / "in_hi3d_512.glb"
+    assert result.path == tmp_path / "in_hi3d.glb"
+    assert result.resolution == 1024
+
+
+def test_a_cascade_keeps_the_previous_rung_when_the_next_fails_coverage(monkeypatch, tmp_path):
+    import trimesh
+
+    coarse = _ready_install(monkeypatch, tmp_path)
+    attempts = []
+    scores = {512: 0.99, 1024: 0.5}
+
+    def fake_run(command, repo, log, on_process):
+        attempts.append(int(command[command.index("--resolution") + 1]))
+        trimesh.creation.box().export(Path(command[command.index("--output") + 1]))
+
+    monkeypatch.setattr(hi3d_backend, "_run_refinement", fake_run)
+    monkeypatch.setattr(hi3d_backend, "surface_coverage",
+                        lambda current, target: scores[attempts[-1]])
+    lines = []
+    result = generate_hi3d(
+        tmp_path / "in.png", coarse, tmp_path,
+        Hi3DOptions(repo=tmp_path, resolution=1024, cascade=True), log=lines.append,
+    )
+    assert attempts == [512, 1024]
+    assert result.path == tmp_path / "in_hi3d_512.glb"
+    assert result.resolution == 512
+    assert any("keeping the 512 rung" in line for line in lines)
+
+
+def test_a_cascade_refuses_when_its_first_rung_loses_the_model(monkeypatch, tmp_path):
+    import trimesh
+
+    coarse = _ready_install(monkeypatch, tmp_path)
+    attempts = []
+
+    def fake_run(command, repo, log, on_process):
+        attempts.append(int(command[command.index("--resolution") + 1]))
+        trimesh.creation.box().export(Path(command[command.index("--output") + 1]))
+
+    monkeypatch.setattr(hi3d_backend, "_run_refinement", fake_run)
+    monkeypatch.setattr(hi3d_backend, "surface_coverage", lambda *args: 0.4)
+    with pytest.raises(hi3d_backend.RefineQualityError, match="40%"):
+        generate_hi3d(
+            tmp_path / "in.png", coarse, tmp_path,
+            Hi3DOptions(repo=tmp_path, resolution=1024, cascade=True),
+            log=lambda line: None,
+        )
+    assert attempts == [512]

@@ -305,6 +305,24 @@ def test_adding_a_normal_texture_when_the_material_has_none(tmp_path):
     assert image.shape[:2] == (8, 8)
 
 
+def test_adding_a_metallic_roughness_texture_when_the_material_has_none(tmp_path):
+    data = _textured_glb()
+    doc, _ = pp._split_glb(data)
+    assert "metallicRoughnessTexture" not in doc["materials"][0].get(
+        "pbrMetallicRoughness", {})
+    png = pp.encode_png(np.full((8, 8, 3), 128, dtype=np.uint8))
+    with_mr = pp.add_metallic_roughness_texture(data, png)
+    doc, binary = pp._split_glb(with_mr)
+    material = doc["materials"][0]
+    assert "metallicRoughnessTexture" in material["pbrMetallicRoughness"]
+    # The base colour texture is untouched; the new image rides along at index 1.
+    assert material["pbrMetallicRoughness"]["baseColorTexture"]["index"] == 0
+    image = pp.read_image(
+        doc, binary, doc["textures"][
+            material["pbrMetallicRoughness"]["metallicRoughnessTexture"]["index"]]["source"])
+    assert image.shape[:2] == (8, 8)
+
+
 def _webp_only_glb(colour=(90, 60, 30)) -> bytes:
     """A GLB whose base colour is WebP through EXT_texture_webp, with no PNG fallback:
     how Pixal3D's raw output arrives."""

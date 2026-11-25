@@ -122,9 +122,8 @@ PINS = {
 }
 
 LICENCE = (
-    "Qwen Research License. The pictures you generate are yours (Qwen confirmed it);\n"
+    "MIT. The pictures you generate are yours;\n"
     "  the weights stay on this machine. Built with Qwen.\n"
-    "  https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
 )
 
 
@@ -503,7 +502,7 @@ def main(argv: list[str] | None = None) -> int:
         install_weights()
     if args.vision:
         install_vision()
-        print("\nDone. Back pictures: python scripts/make_back_view.py front.png back.png")
+        print("\nDone. Back pictures: python scripts/make_back_view.py front.png back.png --engine qwen")
         return 0
     print("\nDone. In the studio, press + Create and start from an idea.")
     return 0

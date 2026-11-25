@@ -303,10 +303,47 @@ def test_hi3d_manifest_runs_and_records_the_coarse_mesh(tmp_path, monkeypatch):
     sidecars = list((tmp_path / "out").rglob("*.provenance.json"))
     assert len(sidecars) == 1
     record = json.loads(sidecars[0].read_text())
-    assert record["output"]["classification"] == "commercial-conditional"
+    assert record["output"]["classification"] == "commercial-clear"
     assert record["input"]["coarse_mesh"]["path"] == str(coarse.resolve())
-    assert record["license"]["name"] == "Hi3D Open License Agreement v1.0"
+    assert "Tencent" not in record["license"]["name"]
     components = " ".join(json.dumps(c) for c in record["components"])
     assert "dinov2-large" in components
     assert "clip-vit-large-patch14" in components
     assert "coarse input mesh" in components
+
+
+def test_hi3d_manifest_cascade_reaches_the_backend(tmp_path, monkeypatch):
+    from Ar3DRAHub.hi3d_backend import Hi3DOptions, Hi3DResult
+
+    image = tmp_path / "in.png"
+    image.write_bytes(b"png")
+    coarse = tmp_path / "coarse.glb"
+    coarse.write_bytes(b"glb")
+    manifest = tmp_path / "run.json"
+    manifest.write_text(json.dumps({
+        "schema_version": 1,
+        "use_case": "showcase",
+        "distribution": "private",
+        "commercial_intent": False,
+        "input": {"path": "in.png", "coarse_mesh": "coarse.glb"},
+        "model": {
+            "backend": "hi3d",
+            "parameters": {"resolution": 1024, "hi3d_cascade": True},
+        },
+        "license_policy": {"allow_conditional": True},
+        "output": {"directory": str(tmp_path / "out")},
+    }))
+
+    seen = {}
+
+    def generate(image_arg, coarse_arg, working, options, log=None):
+        seen["options"] = options
+        asset = Path(working) / "mesh.glb"
+        asset.write_bytes(valid_glb(generator="the hi3d backend"))
+        return Hi3DResult(asset, options.resolution)
+
+    monkeypatch.setattr("Ar3DRAHub.hi3d_backend.generate_hi3d", generate)
+    assert main(["--run-manifest", str(manifest)]) == 0
+    assert seen["options"] == Hi3DOptions(
+        repo=Path("vendor/hi3d"), resolution=1024, cpu_offload=True, cascade=True
+    )

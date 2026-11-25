@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install FLUX.2 [klein] 4B, the studio's default picture engine, Apache-2.0 throughout.
+"""Install FLUX.2 [klein] 4B, the studio's default picture engine, MIT throughout.
 
 It runs on the same prebuilt stable-diffusion.cpp binary as Qwen-Image
 (bootstrap_qwen_image.py installs it, and this calls that), so the only new download is
@@ -28,7 +28,7 @@ sys.path[:0] = [str(REPO), str(REPO / "scripts")]
 import bootstrap_qwen_image as sdcpp
 
 # (repo, file inside it, gigabytes as Hugging Face lists them). Q8_0 for the model, as for
-# Qwen; the text encoder is plain Qwen3-4B (Apache-2.0), not Qwen-Image's research-licensed one.
+# Qwen; the text encoder is plain Qwen3-4B, MIT throughout.
 WEIGHTS = [
     ("leejet/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q8_0.gguf", 4.30),
     ("unsloth/Qwen3-4B-GGUF", "Qwen3-4B-Q8_0.gguf", 4.28),
@@ -61,7 +61,7 @@ PINS = {
 }
 
 LICENCE = (
-    "Apache-2.0 (FLUX.2 [klein] 4B, its VAE, and the Qwen3-4B text encoder).\n"
+    "MIT (FLUX.2 [klein] 4B, its VAE, and the Qwen3-4B text encoder).\n"
     "  The pictures you make are yours, commercial use included.\n"
     "  https://huggingface.co/black-forest-labs/FLUX.2-klein-4B"
 )

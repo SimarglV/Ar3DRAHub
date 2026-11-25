@@ -510,16 +510,19 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     resize();
   }
 
-  /** One picture, or a front and back pair side by side (`back` given). */
-  // `labels` names the two pictures: front and back by default, original and new for a skin
-  function showImage(url, caption, back = null, labels = ['Front', 'Back']) {
+  /** One picture, or the views side by side (`back` given, `sides` for the left/right views). */
+  // `labels` names the first two pictures: front and back by default, original and new for a skin
+  function showImage(url, caption, back = null, labels = ['Front', 'Back'], sides = null) {
     setToolsMode(false);
     ++loadToken;
     dispose();
-    const pictures = back
-      ? `<div class="pair"><div><div class="zoombox"><img src="${url}" alt="${labels[0]}"></div><span>${labels[0]}</span></div><div><div class="zoombox"><img src="${back}" alt="${labels[1]}"></div><span>${labels[1]}</span></div></div>`
-      : `<div class="zoombox"><img src="${url}" alt=""></div>`;
-    setOverlay(`<figure class="sv-picture${back ? ' two' : ''}">${pictures}<div class="zoombar" role="group" aria-label="Zoom"></div><figcaption>${caption} <span class="zoomhint">Pick a zoom, or scroll over a picture; drag to move, double-click to reset.</span></figcaption></figure>`);
+    const views = [{ url, label: labels[0] }];
+    if (back) views.push({ url: back, label: labels[1] });
+    if (sides) sides.forEach(([u, l]) => views.push({ url: u, label: l }));
+    const pair = views.length > 1;
+    const four = views.length > 2;
+    const pictures = `<div class="pair">${views.map((v) => `<div><div class="zoombox"><img src="${v.url}" alt="${v.label}"></div><span>${v.label}</span></div>`).join('')}</div>`;
+    setOverlay(`<figure class="sv-picture${four ? ' four' : pair ? ' two' : ''}">${pictures}<div class="zoombar" role="group" aria-label="Zoom"></div><figcaption>${caption} <span class="zoomhint">Pick a zoom, or scroll over a picture; drag to move, double-click to reset.</span></figcaption></figure>`);
     resizePictureOverlay();
     attachZoom(overlay);
     resizePictureOverlay();

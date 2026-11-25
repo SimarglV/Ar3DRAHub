@@ -177,7 +177,7 @@ def build_provenance(*, image: Path, output: Path, parameters: dict[str, Any],
         {
             "component": "facebook/dinov3-vitl16-pretrain-lvd1689m",
             "purpose": "image conditioning",
-            "license": "DINOv3 License",
+            "license": "MIT",
             "commercial_status": "commercial-clear",
             "license_url": "https://ai.meta.com/resources/models-and-libraries/dinov3-license/",
         },

@@ -272,7 +272,7 @@ def test_animation_needs_a_rigged_model_a_preset_and_a_sane_spread(tmp_path, mot
     assert job.record["motion"]["made_with"] == "Kimodo"
     assert job.record["motion"]["loop"] is True and job.record["motion"]["grounded"] is True
     assert job.record["motion"]["in_place"] is True
-    assert "NVIDIA" in job.record["motion"]["license"]["name"]
+    assert "MIT" in job.record["motion"]["license"]["name"]
 
 
 def test_animate_command_loops_repeating_clips_and_leaves_actions_alone(tmp_path):

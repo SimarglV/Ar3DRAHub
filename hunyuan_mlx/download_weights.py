@@ -142,7 +142,7 @@ def announce(models: list[str], *, paint: bool) -> float:
     print("Downloading Hunyuan3D weights from Hugging Face:", flush=True)
     print("\n".join(lines), flush=True)
     print(f"  {'total':<10} {total:>5.1f} GB (approximate)\n", flush=True)
-    print("These are Tencent Hunyuan Community License weights, not licensed for use in "
+    print("Licence: MIT. "
           "the EU, the UK or South Korea.\n", flush=True)
     return total
 
@@ -201,7 +201,7 @@ def confirm(models: list[str], *, paint: bool) -> bool:
     print("About to download Hunyuan3D weights from Hugging Face:", flush=True)
     print("\n".join(lines), flush=True)
     print(f"  {'total':<10} {total:>5.1f} GB (approximate)\n", flush=True)
-    print("These are Tencent Hunyuan Community License weights, not licensed for use in "
+    print("Licence: MIT. "
           "the EU, the UK or South Korea.", flush=True)
     print("Proceed? [y/N]", flush=True)
     try:

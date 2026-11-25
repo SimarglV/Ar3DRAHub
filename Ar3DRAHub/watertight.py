@@ -1,4 +1,4 @@
-"""Rebuild a broken mesh as one closed, manifold surface. MIT, no CGAL.
+"""Rebuild a broken mesh as one closed, manifold surface. MIT.
 
 **Why this exists.** Every model this studio generates is a *display* surface, not a solid:
 Pixal3D, TRELLIS.2 and Hi3D all emit triangle soup that a renderer is happy with and a
@@ -16,8 +16,8 @@ Two tools already in this repo touch the problem and neither solves it:
   mesh and wrong for a mesh that must be a solid: it can only close holes that are loops,
   and it cannot merge shells.
 
-**How this does it.** The same idea the GPL tools use -- resample to a volume, extract one
-surface -- in components that are all permissively licensed:
+**How this does it.** The same idea WTiVo uses -- resample to a volume, extract one
+surface -- with MIT components:
 
 1. **An unsigned distance field, kept only near the surface.** Every cell the surface
    passes within a couple of voxels of gets its exact distance to the nearest triangle, by
@@ -38,7 +38,7 @@ surface -- in components that are all permissively licensed:
    `VoxelGrid.fill` cannot do this -- it floods from the bounding box and swallows the
    cavity (measured: a hollow box went from 3.90 to 6.37).
 4. **One field, then marching cubes.** `field = distance` outside the mask and
-   `-distance` inside it, `skimage.measure.marching_cubes` (BSD-3-Clause) contouring at
+   `-distance` inside it, `skimage.measure.marching_cubes` contouring at
    zero. Both sides come from a Euclidean distance transform, asked separately for each
    -- `distance_transform_edt(mask)` returns zero right across a cavity, which flattens
    the field and is what once turned a hollow box into a solid one. A mask, not a
@@ -65,8 +65,7 @@ at `across=300`, 0.00268 in and 0.00600 out -- but the output encloses 3.2% of i
 box against the input's 1.4%, so nothing was poured in. A closed surface thinner than a
 voxel cannot be built; that is the resolution cost, made visible.
 
-Licences: this module and its maths are MIT. numpy, scipy, trimesh and scikit-image are
-BSD/MIT. No CGAL, no GPL, no third-party binary to fetch.
+Licences: MIT. No extra binary to fetch.
 """
 
 from __future__ import annotations

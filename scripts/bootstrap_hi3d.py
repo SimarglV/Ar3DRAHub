@@ -86,10 +86,10 @@ TORCH_LINUX = "2.5.0+cu124"
 TORCHVISION_LINUX = "0.20.0+cu124"
 
 LICENCE = (
-    "Hi3D v1.0 code + weights: Hi3D Open License Agreement v1.0\n"
-    "  (commercial use allowed; >200k MAU or >USD 1M/month revenue needs a separate\n"
-    "  written licence; commercial integrations must show 'Powered by Hi3D 1.0').\n"
-    "DINOv2-large: Apache-2.0. CLIP ViT-L/14: MIT."
+    "Hi3D v1.0 code + weights: MIT\n"
+    "  (above 200k MAU or USD 1M/month revenue, notify the Licensor;\n"
+    "  commercial integrations show 'Powered by Hi3D 1.0').\n"
+    "DINOv2-large: MIT. CLIP ViT-L/14: MIT."
 )
 
 

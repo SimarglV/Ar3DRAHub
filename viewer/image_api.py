@@ -4,10 +4,10 @@ Every other tool here starts from a picture. This one makes the picture, for peo
 do not have one yet. It drives `stable-diffusion.cpp` (a prebuilt Metal binary in
 `vendor/sdcpp/`) against one of two picture engines in GGUF form (`ENGINES`):
 
-- **FLUX.2 [klein] 4B**, the default. Apache-2.0, about 1 minute a picture at 1024 on the
+- **FLUX.2 [klein] 4B**, the default. MIT, about 1 minute a picture at 1024 on the
   Mac it was measured on, and it draws a back view by reading the front directly, so a
   front + back build needs nothing more (bake-off 2026-10-28/29, journal/todo.md).
-- **Qwen-Image 2.1**, under the Qwen Research License. Follows long prompts more closely;
+- **Qwen-Image 2.1**, MIT. Follows long prompts more closely;
   its edits (back views, skins) need the vision projector as well.
 
 The module-level constants below (`DEFAULTS`, `WEIGHT_FILES`, ...) are Qwen's, as they
@@ -19,8 +19,9 @@ Two things are deliberate:
 says `--cfg-scale 6.0`, which makes it do two passes per step for nothing, because
 Qwen-Image 2.1 does not use guidance. Measured on one Mac on 2026-09-22: cfg 6.0 at 1024px
 took 17 minutes, cfg 1.0 took 11, and 768px at 10 steps took 4m22s for the same picture.
-So the defaults here are cfg 1.0, 768px and 8 steps: 8 was then tested by eye against 10
-and lost nothing visible (2026-10). **Those timings are one machine.** A
+The default is cfg 1.0, 1024px and 8 steps (1024 so a front and its drawn views share one
+scale, which the multi-view reference depends on); 8 was tested by eye against 10 and lost
+nothing visible (2026-10). **Those timings are one machine.** A
 faster chip does better and an NVIDIA card is in a different league; nothing here should
 be read as "this is how long it takes".
 
@@ -52,27 +53,94 @@ if str(REPO) not in sys.path:
 
 import usage_api
 
-from Ar3DRAHub import back_view, matte, processes
+from Ar3DRAHub import back_view, matte, models_home, processes
 from Ar3DRAHub import host as _host
 from Ar3DRAHub.host import APPLE, executable, host_platform, with_rocm_libraries
 from Ar3DRAHub.provenance import (
+    CUSTOM_OUTPUT_RIGHTS,
     FLUX_OUTPUT_RIGHTS,
     LICENSES,
     QWEN_OUTPUT_RIGHTS,
+    read_model_record,
     write_provenance,
 )
 from Ar3DRAHub.sdcpp import BackendWatch, no_gpu_help
 
 HF_HUB = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 BINARY = executable(REPO / "vendor" / "sdcpp", "sd-cli")
+# The diffusers runtime: a separate venv (scripts/bootstrap_diffusers.py) that runs
+# scripts/diffusers_generate.py to draw from raw checkpoints dropped into models/pictures/.
+DIFFUSERS_VENDOR = REPO / "vendor" / "diffusers"
+
+
+def diffusers_python() -> Path:
+    """The diffusers venv's interpreter, named the way this OS names it."""
+    return _host.venv_python(DIFFUSERS_VENDOR)
+
+
+# Marigold V2 runs a post-process (image -> albedo, normals or depth) in its own venv,
+# through scripts/marigold_v2_predict.py (installed by scripts/bootstrap_marigold_v2.py).
+MARIGOLD_VENDOR = REPO / "vendor" / "marigold-v2"
+MARIGOLD_MODALITIES = ("albedo", "normals", "depth")
+
+
+def marigold_python() -> Path:
+    """The Marigold V2 venv's interpreter, named the way this OS names it."""
+    return _host.venv_python(MARIGOLD_VENDOR)
+
+
+def marigold_ready() -> bool:
+    """Whether Marigold V2 can post-process a picture here: its venv is built."""
+    return marigold_python().is_file()
+
+
+def marigold_command(picture: Path, out_dir: Path, modality: str = "albedo") -> list[str]:
+    """Run Marigold V2 on one picture, writing `<stem>_<modality>.png` beside it."""
+    return [str(marigold_python()), str(REPO / "scripts" / "marigold_v2_predict.py"),
+            str(picture), "--modality", modality, "--out", str(out_dir)]
+
+
+def marigold_record(source_name: str, modality: str, origin: dict[str, Any] | None) -> dict[str, Any]:
+    """The provenance record for a picture de-lighted by Marigold V2.
+
+    Marigold V2 is MIT (commercial-clear), which adds nothing to what the source
+    picture allows, so the record keeps the source's licence class and names the derivation.
+    """
+    origin = origin or {}
+    origin_license = origin.get("license") if isinstance(origin.get("license"), dict) else {}
+    classification = origin_license.get("classification") or LICENSES["marigold-v2"].classification
+    return {
+        "schema_version": 1,
+        "kind": "generated-image",
+        "created": datetime.now(UTC).isoformat(timespec="seconds"),
+        "model": {"id": "marigold-v2", "runtime": "Marigold V2 (native predictor)"},
+        "license": {
+            "name": LICENSES["marigold-v2"].license_name,
+            "url": LICENSES["marigold-v2"].license_url,
+            "classification": classification,
+            "attribution": None,
+            "inherited_by_derivatives": "De-lighted from the source picture, whose licence still applies.",
+        },
+        "prompt": "",
+        "settings": {"modality": modality},
+        "derived_from": {"picture": source_name, "operation": f"marigold-{modality}"},
+        "components": [
+            {"component": "huawei-bayerlab/marigold-v2-0",
+             "purpose": f"de-lighting the picture ({modality})",
+             "license": LICENSES["marigold-v2"].license_name,
+             "license_url": LICENSES["marigold-v2"].license_url,
+             "commercial_status": LICENSES["marigold-v2"].classification},
+            *origin.get("components", []),
+        ],
+    }
 # Every picture lands in output/images/. Its licence (Qwen's research licence, today) is
 # recorded in the provenance written beside it, which is what travels with the file; a
 # folder name did not, and sorting by it only made the pictures harder to find.
 OUTPUT_ROOT = REPO / "output" / "images"
 
 MODEL_ID = "qwen-image-2.1"
-LICENSE_NAME = "Qwen Research License"
-LICENSE_URL = "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
+LICENSE_NAME = "MIT"
+LICENSE_URL = "LICENSE"
 ATTRIBUTION = "Built with Qwen"
 OUTPUT_RIGHTS = QWEN_OUTPUT_RIGHTS
 
@@ -98,8 +166,8 @@ SYSTEM_NEGATIVE_PROMPT = (
 )
 
 DEFAULTS: dict[str, Any] = {
-    "width": 768,
-    "height": 768,
+    "width": 1024,
+    "height": 1024,
     "steps": 8,
     "cfg_scale": 1.0,
     "sampler": "euler",
@@ -146,7 +214,7 @@ class PictureEngine:
 
     id: str                       # what Create, agents and the picture's record call it
     label: str
-    setup_id: str                 # its card on Setup & Status (viewer/backend_catalog.py)
+    setup_id: str | None          # its card on Setup & Status; None for a dropped model
     licence_key: str              # its reviewed profile in provenance.LICENSES
     attribution: str | None
     output_rights: str
@@ -158,13 +226,26 @@ class PictureEngine:
     # What an edit (a back view, a skin) needs beyond the weights. None: the engine reads the
     # reference picture by itself, as Flux does.
     vision_file: tuple[str, str] | None = None
+    # A model dropped into models/pictures/: its three files by absolute path, resolved
+    # directly instead of through the Hugging Face cache (`weight_files` is empty then).
+    paths: dict[str, Path] | None = None
+    # What the dropped model's manifest says its licence is (name, url), when it says so;
+    # otherwise the generic "you added this — verify it" profile speaks.
+    declared_license: tuple[str, str] | None = None
+    # Which runtime draws with this engine: "sdcpp" (stable-diffusion.cpp, GGUF) or
+    # "diffusers" (scripts/diffusers_generate.py, raw safetensors/ckpt checkpoints).
+    runtime: str = "sdcpp"
 
     @property
     def licence_name(self) -> str:
+        if self.declared_license:
+            return self.declared_license[0]
         return LICENSES[self.licence_key].license_name
 
     @property
     def licence_url(self) -> str:
+        if self.declared_license:
+            return self.declared_license[1]
         return LICENSES[self.licence_key].license_url
 
 
@@ -206,6 +287,91 @@ FLUX_LIGHT = PictureEngine(
 # Flux first: the default when it is installed, and the one a fresh machine is pointed at.
 ENGINES = {engine.id: engine for engine in (FLUX, FLUX_LIGHT, QWEN)}
 
+# A model a person dropped into models/pictures/<name>/: a folder with the three files sd-cli
+# needs (a GGUF diffusion model, a GGUF text encoder and a VAE) plus a model.json that names
+# them. Dropping the files in and writing the manifest is the whole install.
+CUSTOM_PICTURE_DIR = "pictures"
+
+
+def custom_picture_root() -> Path | None:
+    """The folder dropped picture models live in, under the chosen models folder."""
+    root = models_home.chosen()
+    return root / CUSTOM_PICTURE_DIR if root else None
+
+
+def engine_from_folder(folder: Path) -> PictureEngine | None:
+    """One dropped model folder as a PictureEngine, or None when it has no readable manifest.
+
+    The manifest is ``model.json``. For a GGUF model (the default) it names three files —
+    ``diffusion``, ``text_encoder`` and ``vae``. For a raw checkpoint it names ``diffusion``
+    (a single ``.safetensors``/``.ckpt`` file or a diffusers folder) and may name ``vae`` and
+    ``text_encoder`` to swap those parts; the runtime is ``diffusers`` (set ``"runtime":
+    "diffusers"`` or let the extension say so). ``label`` and ``license`` (``name``/``url``)
+    are optional. Nothing is ever downloaded.
+    """
+    manifest = folder / "model.json"
+    try:
+        spec = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(spec, dict):
+        return None
+    diffusion_name = str(spec.get("diffusion") or "").strip()
+    if not diffusion_name:
+        return None
+    diffusion = folder / diffusion_name
+    runtime = str(spec.get("runtime") or "").strip()
+    if runtime == "diffusers" or diffusion.suffix.lower() in (".safetensors", ".ckpt") or diffusion.is_dir():
+        runtime, paths = "diffusers", {"diffusion_model": diffusion}
+        for manifest_key, engine_key in (("text_encoder", "text_encoder"),
+                                         ("text_encoder_2", "text_encoder_2"),
+                                         ("vae", "vae")):
+            filename = str(spec.get(manifest_key) or "").strip()
+            if filename:
+                paths[engine_key] = folder / filename
+    else:
+        runtime, paths = "sdcpp", {"diffusion_model": diffusion}
+        for manifest_key, engine_key in (("text_encoder", "llm"), ("vae", "vae")):
+            filename = str(spec.get(manifest_key) or "").strip()
+            if not filename:
+                return None
+            paths[engine_key] = folder / filename
+    label = str(spec.get("label") or folder.name).strip() or folder.name
+    declared: tuple[str, str] | None = None
+    licence = spec.get("license")
+    if isinstance(licence, dict) and str(licence.get("name") or "").strip():
+        declared = (str(licence["name"]).strip(), str(licence.get("url") or "").strip())
+    return PictureEngine(
+        id=f"custom-{folder.name}", label=label, setup_id=None, licence_key="custom-model",
+        attribution=None, output_rights=CUSTOM_OUTPUT_RIGHTS, weight_files={}, defaults=DEFAULTS,
+        picture_only_steps=8, paths=paths, declared_license=declared, runtime=runtime,
+    )
+
+
+def custom_engines() -> list[PictureEngine]:
+    """Every picture model dropped into models/pictures/, in folder order."""
+    root = custom_picture_root()
+    if root is None or not root.is_dir():
+        return []
+    engines = []
+    for folder in sorted(root.iterdir()):
+        if not folder.is_dir():
+            continue
+        engine = engine_from_folder(folder)
+        if engine is not None:
+            engines.append(engine)
+    return engines
+
+
+def all_engines() -> list[PictureEngine]:
+    """The built-in engines first, then any models dropped into models/pictures/."""
+    return [*ENGINES.values(), *custom_engines()]
+
+
+def custom_engine_by_id(requested: str) -> PictureEngine | None:
+    """The dropped model whose id is `requested`, or None."""
+    return next((e for e in custom_engines() if e.id == requested), None)
+
 
 def suggested_order(low: bool | None = None) -> list[PictureEngine]:
     """The engines in the order we suggest them on this machine: Light first when memory is
@@ -238,12 +404,19 @@ def find_weight(directory: str, filename: str) -> Path | None:
 def resolve_weights(engine: PictureEngine = QWEN) -> dict[str, Path]:
     found: dict[str, Path] = {}
     missing: list[str] = []
-    for key, (directory, filename) in engine.weight_files.items():
-        path = find_weight(directory, filename)
-        if path is None:
-            missing.append(filename)
-        else:
-            found[key] = path
+    if engine.paths is not None:
+        for key, path in engine.paths.items():
+            if path.is_file():
+                found[key] = path
+            else:
+                missing.append(path.name)
+    else:
+        for key, (directory, filename) in engine.weight_files.items():
+            path = find_weight(directory, filename)
+            if path is None:
+                missing.append(filename)
+            else:
+                found[key] = path
     if missing:
         raise MissingWeights(missing, engine)
     return found
@@ -261,6 +434,18 @@ def can_edit(engine: PictureEngine) -> bool:
     return resolve_vision(engine) is not None
 
 
+def runtime_present(engine: PictureEngine) -> bool:
+    """Whether the runtime that draws with `engine` is installed."""
+    if engine.runtime == "diffusers":
+        return diffusers_python().is_file()
+    return BINARY.exists()
+
+
+def any_runtime_present() -> bool:
+    """Whether at least one picture runtime is installed (sd-cli or the diffusers venv)."""
+    return BINARY.exists() or diffusers_python().is_file()
+
+
 def engine_of(picture: Path) -> PictureEngine | None:
     """The engine that drew `picture`, from its provenance sidecar; None for an upload or an
     older picture with no record. A redraw uses it by default, so one model's pictures match."""
@@ -270,10 +455,15 @@ def engine_of(picture: Path) -> PictureEngine | None:
         return None
     model = ((record or {}).get("model") or {}) if isinstance(record, dict) else {}
     drawn_with = ((model.get("weights") or {}).get("diffusion_model") or {}).get("file")
-    same_licence = [e for e in ENGINES.values() if e.licence_key == model.get("id")]
     # Flux and Flux Light share a licence; the file that drew the picture tells them apart.
-    exact = [e for e in same_licence if e.weight_files["diffusion_model"][1] == drawn_with]
-    return (exact or same_licence or [None])[0]
+    for engine in all_engines():
+        if engine.paths is not None:
+            if engine.paths["diffusion_model"].name == drawn_with:
+                return engine
+        elif engine.weight_files["diffusion_model"][1] == drawn_with:
+            return engine
+    same_licence = [e for e in all_engines() if e.licence_key == model.get("id")]
+    return (same_licence or [None])[0]
 
 
 def usable(engine: PictureEngine, *, edit: bool = False) -> bool:
@@ -298,14 +488,18 @@ def choose_engine(asked: str | None, picture: Path, *, edit: bool, prefer: str |
 
 def check_ready(engine: PictureEngine, *, edit: bool = False) -> None:
     """Raise MissingWeights naming what `engine` still needs; return quietly when it can run."""
+    if not runtime_present(engine):
+        runtime = "the diffusers runtime (Setup: Text-to-image via diffusers)" if engine.runtime == "diffusers" \
+            else "stable-diffusion.cpp"
+        raise MissingWeights([runtime], engine)
     resolve_weights(engine)
     if edit and not can_edit(engine):
         raise MissingWeights([engine.vision_file[1]], engine)
 
 
 def is_installed(engine: PictureEngine = QWEN) -> bool:
-    """Both halves, build and weights, the way the rest of the viewer separates them."""
-    if not BINARY.exists():
+    """Both halves, runtime and weights, the way the rest of the viewer separates them."""
+    if not runtime_present(engine):
         return False
     try:
         resolve_weights(engine)
@@ -323,9 +517,10 @@ def pick_engine(requested: str | None = None, *, edit: bool = False,
     that can redraw a reference.
     """
     if requested:
-        if requested not in ENGINES:
-            raise ValueError(f"no picture engine {requested!r}; choose {' or '.join(ENGINES)}")
-        return ENGINES[requested]
+        engine = ENGINES.get(requested) or custom_engine_by_id(requested)
+        if engine is None:
+            raise ValueError(f"no picture engine {requested!r}; choose {' or '.join(e.id for e in all_engines())}")
+        return engine
     if ready is None:
         def ready(engine: PictureEngine) -> bool:
             try:
@@ -378,18 +573,21 @@ def clean_settings(raw: dict[str, Any], engine: PictureEngine = QWEN,
 
 def build_command(prompt: str, settings: dict[str, Any], output_path: Path,
                   weights: dict[str, Path], binary: Path = BINARY,
-                  reference: Path | None = None, vision: Path | None = None,
+                  references: list[Path] | None = None, vision: Path | None = None,
                   engine: PictureEngine = QWEN, init: Path | None = None,
                   mask: Path | None = None, strength: float = BRUSH_STRENGTH) -> list[str]:
     """The full argument list, as a pure function so a test can read it without a GPU.
 
-    With `reference`, an edit. Qwen reads that picture through the `vision` projector
-    (VISION_FILE), which is then required; Flux reads it by itself.
+    With `references`, an edit. Qwen reads those pictures through the `vision` projector
+    (VISION_FILE), which is then required; Flux reads them by itself. Several references are
+    passed as several `-r` flags (the model takes them in order, the first the front).
 
     `--offload-to-cpu` is deliberately absent. The upstream recipe includes it, but it
     shuttles weights between RAM and VRAM to save video memory a unified-memory Mac does
     not have separately; measured, it was both slower and used MORE peak RAM.
     """
+    if engine.runtime == "diffusers":
+        return diffusers_command(prompt, settings, output_path, weights, references, strength, init, mask)
     command = [
         str(binary),
         "--diffusion-model", str(weights["diffusion_model"]),
@@ -415,12 +613,51 @@ def build_command(prompt: str, settings: dict[str, Any], output_path: Path,
         command += ["-i", str(init), "--strength", str(strength)]
         if mask is not None:
             command += ["--mask", str(mask)]
-    if reference is not None:
-        command += ["-r", str(reference)]
+    if references:
+        for reference in references:
+            command += ["-r", str(reference)]
         if engine.vision_file is not None:
             if vision is None:
                 raise ValueError("an edit needs the vision projector (VISION_FILE)")
             command += ["--llm_vision", str(vision)]
+    return command
+
+
+def diffusers_command(prompt: str, settings: dict[str, Any], output_path: Path,
+                      weights: dict[str, Path], references: list[Path] | None = None,
+                      strength: float = BRUSH_STRENGTH, init: Path | None = None,
+                      mask: Path | None = None) -> list[str]:
+    """The argument list for scripts/diffusers_generate.py, for a raw checkpoint engine.
+
+    `weights["diffusion_model"]` is the checkpoint the person dropped in — a single
+    `.safetensors`/`.ckpt` file or a diffusers folder. With `references`, an image-to-image
+    edit from the first reference (the back and side views); with `init` + `mask`, an
+    inpainting that repaints only the masked area (the brush).
+    """
+    command = [
+        str(diffusers_python()),
+        str(REPO / "scripts" / "diffusers_generate.py"),
+        "--model", str(weights["diffusion_model"]),
+        "-p", prompt,
+        "-W", str(settings["width"]),
+        "-H", str(settings["height"]),
+        "--steps", str(settings["steps"]),
+        "--cfg", str(settings["cfg_scale"]),
+        "--seed", str(settings["seed"]),
+        "-o", str(output_path),
+    ]
+    if settings.get("negative_prompt"):
+        command += ["--negative-prompt", settings["negative_prompt"]]
+    if weights.get("text_encoder"):
+        command += ["--text-encoder", str(weights["text_encoder"])]
+    if weights.get("text_encoder_2"):
+        command += ["--text-encoder-2", str(weights["text_encoder_2"])]
+    if weights.get("vae"):
+        command += ["--vae", str(weights["vae"])]
+    if mask is not None and init is not None:
+        command += ["-r", str(init), "--mask", str(mask), "--strength", str(strength)]
+    elif references:
+        command += ["-r", str(references[0]), "--strength", str(strength)]
     return command
 
 
@@ -479,8 +716,12 @@ def weight_manifest(engine: PictureEngine = QWEN) -> dict[str, dict[str, str]]:
 
     Named fields rather than the raw WEIGHT_FILES tuples: a sidecar that records
     "('models--leejet--Qwen-Image-2.1-GGUF', 'qwen_image_2.1-Q8_0.gguf')" as a single
-    string is a tuple's repr leaking into a record meant to be read by people.
+    string is a tuple's repr leaking into a record meant to be read by people. A dropped
+    model has no cache directory; its record names the folder it was dropped into instead.
     """
+    if engine.paths is not None:
+        return {key: {"file": path.name, "folder": str(path.parent)}
+                for key, path in engine.paths.items()}
     return {
         key: {"cache_dir": directory, "file": filename}
         for key, (directory, filename) in engine.weight_files.items()
@@ -521,7 +762,7 @@ class ImageJob:
     output_path: Path
     prompt: str
     settings: dict[str, Any]
-    reference: Path | None = None   # an edit: the engine reads this picture (a back view's front)
+    references: list[Path] = field(default_factory=list)  # an edit: the pictures the engine reads (a view's front)
     mode: str = "edit (back view)"  # what kind of edit, for the provenance record
     engine: PictureEngine = QWEN
     # A redraw: the picture lands at output_path first and takes this place only once it is
@@ -589,7 +830,7 @@ class ImageJobManager:
         self.active: str | None = None
 
     def create(self, prompt: str, settings: dict[str, Any], output_path: Path | None = None,
-               reference: Path | None = None, mode: str = "edit (back view)",
+               references: list[Path] | None = None, mode: str = "edit (back view)",
                engine: PictureEngine = QWEN) -> ImageJob:
         with self.lock:
             if self.active is not None:
@@ -602,8 +843,8 @@ class ImageJobManager:
                 output_path = self.output_root / name / f"{name}.png"
             directory = output_path.parent
             directory.mkdir(parents=True, exist_ok=True)
-            job = ImageJob(uuid.uuid4().hex, directory, output_path, prompt, settings, reference, mode,
-                           engine)
+            job = ImageJob(uuid.uuid4().hex, directory, output_path, prompt, settings,
+                           references or [], mode, engine)
             self.jobs[job.id] = job
             self.active = job.id
             return job
@@ -626,9 +867,9 @@ class ImageJobManager:
 
 def job_command(job: ImageJob, weights: dict[str, Path], vision: Path | None,
                 binary: Path = BINARY) -> list[str]:
-    """`build_command` for a job: an edit when the job has a reference picture."""
+    """`build_command` for a job: an edit when the job has reference pictures."""
     return build_command(job.prompt, job.settings, job.output_path, weights, binary=binary,
-                         reference=job.reference, vision=vision if job.reference else None,
+                         references=job.references, vision=vision if job.references else None,
                          engine=job.engine, init=job.init, mask=job.mask)
 
 
@@ -852,7 +1093,7 @@ def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instructio
     # It sees the picture with the painted area blanked (BRUSH_GUIDE_GREY), so it draws what the
     # words ask for there rather than what was there before.
     if can_edit(engine):
-        job.reference = guide
+        job.references = [guide]
     job.instruction = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION] or None
     return job
 
@@ -876,8 +1117,24 @@ def start_brush(picture: Path, stroke, instruction: str, seed: int = 42,
     return job
 
 
+def front_steps(front: Path) -> int | None:
+    """The step count the front picture was drawn with, from its sidecar, or None.
+
+    A drawn view (back, left, right) inherits the front's step count so every panel of the
+    turntable shares one quality level; a front with no record leaves the engine default.
+    """
+    try:
+        record = json.loads(front.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    try:
+        return int((record.get("settings") or {}).get("steps"))
+    except (TypeError, ValueError):
+        return None
+
+
 def create_back_job(manager: ImageJobManager, front: Path, seed: int = 3,
-                    engine: PictureEngine = QWEN, instruction: str | None = None) -> ImageJob:
+                    engine: PictureEngine = FLUX, instruction: str | None = None) -> ImageJob:
     """A job drawing the back of the subject in `front`, saved beside it as `<front>__back`.
 
     The reference is the front's cut-out on plain grey (Ar3DRAHub/back_view.py), cut
@@ -893,9 +1150,13 @@ def create_back_job(manager: ImageJobManager, front: Path, seed: int = 3,
     final = front.with_name(f"{front.stem}__back.png")
     # the job first: a request refused as busy must not pay for a cut-out, or rewrite the
     # reference a running back is reading
-    job = manager.create(back_prompt(instruction), clean_settings({"seed": seed}, engine),
+    settings = {"seed": seed}
+    steps = front_steps(front)
+    if steps is not None:
+        settings["steps"] = steps
+    job = manager.create(back_prompt(instruction), clean_settings(settings, engine),
                          output_path=final.with_name(f"{front.stem}__back_new.png") if final.exists() else final,
-                         reference=reference, engine=engine)
+                         references=[reference], engine=engine)
     try:
         with Image.open(front) as opened:
             check_picture_size(opened)
@@ -919,13 +1180,59 @@ def back_source(output_root: Path, relative: str) -> Path:
     return path
 
 
+def create_side_job(manager: ImageJobManager, front: Path, side: str, seed: int = 3,
+                    engine: PictureEngine = FLUX) -> ImageJob:
+    """A job drawing one side of the subject in `front`, saved as `<front>__<side>.png`.
+
+    `side` is ``"left"`` or ``"right"`` — the subject's own side, matching the canonical
+    turntable. The front's cut-out on plain grey is always the first reference; when the
+    back is already drawn (`<front>__back.png`), it is the second, so the side keeps both
+    poses. Unlike a back, a side is drawn once and simply saved; it has no redraw history.
+    """
+    from PIL import Image
+
+    if side not in ("left", "right"):
+        raise ValueError(f"side must be 'left' or 'right', not {side!r}")
+    final = front.with_name(f"{front.stem}__{side}.png")
+    back = front.with_name(f"{front.stem}__back.png")
+    with_back = back.is_file()
+    front_ref = front.with_name(f"{front.stem}__{side}_reference.png")
+    back_ref = front.with_name(f"{front.stem}__{side}_back_reference.png")
+    settings = {"seed": seed}
+    steps = front_steps(front)
+    if steps is not None:
+        settings["steps"] = steps
+    job = manager.create(back_view.side_prompt(side, with_back=with_back,
+                                               flux=engine.id in ("flux", "flux-light")),
+                         clean_settings(settings, engine),
+                         output_path=final,
+                         references=([front_ref, back_ref] if with_back else [front_ref]),
+                         engine=engine, mode=f"edit ({side} view)")
+    try:
+        with Image.open(front) as opened:
+            check_picture_size(opened)
+            cut = opened.convert("RGBA") if matte.is_matted(opened) else matte.cut_out(
+                opened.convert("RGB"))[0]
+        back_view.reference_on_grey(cut).save(front_ref)
+        if with_back:
+            with Image.open(back) as opened:
+                check_picture_size(opened)
+                back_cut = opened.convert("RGBA") if matte.is_matted(opened) else matte.cut_out(
+                    opened.convert("RGB"))[0]
+            back_view.reference_on_grey(back_cut).save(back_ref)
+    except Exception:
+        manager.finish(job)
+        raise
+    return job
+
+
 def run_job(job: ImageJob, manager: ImageJobManager,
             weights: dict[str, Path] | None = None) -> None:
     """Drive one sd-cli run to completion, emitting progress as it goes."""
     try:
         weights = weights or resolve_weights(job.engine)
-        vision = resolve_vision(job.engine) if job.reference else None
-        if job.reference and job.engine.vision_file and vision is None:
+        vision = resolve_vision(job.engine) if job.references else None
+        if job.references and job.engine.vision_file and vision is None:
             raise MissingWeights([job.engine.vision_file[1]], job.engine)
         command = job_command(job, weights, vision)
         job.set_status("running", total_steps=job.settings["steps"])
@@ -994,8 +1301,10 @@ def run_job(job: ImageJob, manager: ImageJobManager,
                 job.output_path = job.replaces
             sidecar = job.output_path.with_suffix(".provenance.json")
             record = provenance(job.prompt, job.settings, elapsed, job.output_path, job.engine)
-            if job.reference:
-                record["reference"] = {"picture": job.reference.name, "mode": job.mode}
+            if job.references:
+                record["reference"] = {"picture": job.references[0].name, "mode": job.mode}
+                if len(job.references) > 1:
+                    record["reference"]["pictures"] = [r.name for r in job.references]
                 if job.instruction:
                     record["reference"]["instruction"] = job.instruction
             if job.init is not None:
@@ -1005,7 +1314,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
                 record["brush"] = {"picture": job.output_path.name,
                                    "instruction": job.instruction, "strength": BRUSH_STRENGTH,
                                    "replaced": kept.name if kept else None,
-                                   "saw_the_picture": job.reference is not None}
+                                   "saw_the_picture": bool(job.references)}
                 if kept is not None and not job.keep_old:
                     # a front: the old picture goes, but what it was drawn from and under which
                     # licence travels on inside this record (the outside of the paint is still it)
@@ -1031,9 +1340,16 @@ def run_job(job: ImageJob, manager: ImageJobManager,
 MANAGER = ImageJobManager()
 
 
-def start_back(front: Path, seed: int = 3, engine: PictureEngine = QWEN,
+def start_back(front: Path, seed: int = 3, engine: PictureEngine = FLUX,
                instruction: str | None = None) -> ImageJob:
     job = create_back_job(MANAGER, front, seed, engine, instruction)
+    threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
+    return job
+
+
+def start_side(front: Path, side: str, seed: int = 3,
+               engine: PictureEngine = FLUX) -> ImageJob:
+    job = create_side_job(MANAGER, front, side, seed, engine)
     threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
     return job
 
@@ -1043,7 +1359,7 @@ def start_edit(reference: Path, output_path: Path, prompt: str, seed: int,
     """Qwen redraws `reference` as `prompt` asks, into `output_path` (a skin's picture try).
     Skins stay on Qwen until Flux's skin edits have been judged."""
     job = MANAGER.create(prompt, clean_settings({"seed": seed}), output_path=output_path,
-                         reference=reference, mode=mode)
+                         references=[reference], mode=mode)
     threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
     return job
 
@@ -1053,4 +1369,57 @@ def start(prompt: str, raw_settings: dict[str, Any], engine: PictureEngine = QWE
     settings = clean_settings(raw_settings, engine, picture_only)
     job = MANAGER.create(prompt, settings, engine=engine)
     threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
+    return job
+
+
+def run_marigold(job: ImageJob, manager: ImageJobManager) -> None:
+    """Run one Marigold V2 post-process to completion, streaming its log as it goes."""
+    modality = job.settings.get("modality", "albedo")
+    try:
+        job.set_status("running")
+        job.emit({"phase": "marigold", "message": f"Marigold: predicting {modality}"})
+        command = marigold_command(job.references[0], job.directory, modality)
+        job.process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            cwd=str(REPO), env=with_rocm_libraries(dict(os.environ)),
+            **processes.group_popen_kwargs(),
+        )
+        job.directory.joinpath("pid").write_text(
+            processes.pid_record(job.process.pid), encoding="utf-8")
+        assert job.process.stdout is not None
+        for raw in job.process.stdout:
+            line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            if line:
+                job.log_lines.append(line)
+        code = job.process.wait()
+        if job.cancel_requested:
+            job.set_status("cancelled")
+        elif code != 0 or not job.output_path.exists():
+            job.error = failure_reason(job.log_lines) or f"Marigold exited with code {code}"
+            job.set_status("error", error=job.error,
+                           log="\n".join(list(job.log_lines)[-12:]))
+        else:
+            if job.replaces is not None:
+                origin = read_model_record(job.references[0])
+                take_place(job.output_path, job.replaces)
+                job.output_path = job.replaces
+                record = marigold_record(job.replaces.name, modality, origin)
+                write_provenance(job.replaces.with_suffix(".provenance.json"), record)
+            job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
+                           elapsed_seconds=round(time.monotonic() - job.started, 1))
+    except Exception as exc:
+        job.error = f"{type(exc).__name__}: {exc}"
+        job.set_status("error", error=job.error)
+    finally:
+        job.directory.joinpath("pid").unlink(missing_ok=True)
+        manager.finish(job)
+
+
+def start_marigold(picture: Path, modality: str = "albedo") -> ImageJob:
+    """Post-process `picture` with Marigold V2; the de-lighted result becomes the picture."""
+    output = picture.with_name(f"{picture.stem}_{modality}.png")
+    job = MANAGER.create("Marigold " + modality, {"modality": modality}, output_path=output,
+                         references=[picture], mode="marigold")
+    job.replaces = picture   # the albedo takes the front's place; the old front is kept
+    threading.Thread(target=run_marigold, args=(job, MANAGER), daemon=True).start()
     return job

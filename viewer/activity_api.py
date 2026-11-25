@@ -25,19 +25,23 @@ from usage_api import CLIENT_HEADER
 HISTORY_NAME = ".activity.jsonl"
 TERMINAL = {"done", "error", "cancelled"}
 STALL_SECONDS = 180
-STEPS = ("picture", "back", "model", "finished", "split", "rigged", "animated", "motion")
-LABELS = {"picture": "Picture", "back": "Back picture", "model": "3D model", "finished": "Finish",
+STEPS = ("picture", "back", "left", "right", "model", "finished", "split", "rigged", "animated", "motion")
+LABELS = {"picture": "Picture", "back": "Back picture", "left": "Left view", "right": "Right view",
+          "model": "3D model", "finished": "Finish",
           "split": "Split into props", "rigged": "Rig", "animated": "Animate", "motion": "UniMate motion",
           "skin": "Skin"}
-KIND = {"picture": "image", "back": "image", "model": "generate", "finished": "finish", "split": "props",
-        "rigged": "animate", "animated": "animate", "motion": "motion"}
+KIND = {"picture": "image", "back": "image", "left": "image", "right": "image", "model": "generate", "finished": "finish",
+        "split": "props", "rigged": "animate", "animated": "animate", "motion": "motion"}
 # The Finish choices a plan may carry (the same ones the Steps panel's Finish sends).
 MOVE_KEYS = ("speed", "arm_spread", "in_place")
 # Every Detail choice the studio and agents offer must be able to pass (mcp_server.FINISH_DETAILS):
-# "high" and "hero" were dropped here, so an agent asking for them got a plain Finish.
+# "high" and "hero" were dropped here, so an agent asking for them got a plain Finish; the same
+# happened to "texture" (2026-11-23: a full studio run finished without UltraTex while the
+# finish_settings JSON carried texture=ultratex the whole way).
 FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge", "texture_size",
                "high_detail", "hero", "marigold", "marigold_normals", "photo_fade_normals",
                "hi3d", "hi3d_resolution", "hi3d_texture",
+               "texture", "ultratex_steps", "ultratex_seed", "ultratex_guided",
                "watertight", "watertight_across", "watertight_tool", "watertight_wativo_res")
 # Only Pixal3D builds from a front and a back picture.
 FRONT_BACK_ENGINES = {"pixal3d"}
@@ -324,6 +328,8 @@ class ChainRunner:
             chain.made["picture"] = final.get("picture")
         elif step == "back":
             chain.made["back"] = final.get("picture")
+        elif step in ("left", "right"):
+            chain.made[step] = final.get("picture")
         elif step == "model":
             chain.made["model"] = final.get("model")
         elif step == "finished":
@@ -414,14 +420,17 @@ class ChainRunner:
                                "engine": chain.picture_engine,
                                "picture_only": not {"back", "model"} & set(chain.steps)}).encode()
             return kind, self._post("/api/image", body, "application/json")
-        if step == "back":
+        if step in ("back", "left", "right"):
             front = chain.made.get("picture") or (self._kept_upload(chain) if chain.upload else None)
             if not front:
-                raise ValueError("the back picture needs a front picture, and there is none yet")
-            # the front's engine is a preference (any engine that can draw backs will do); a redraw's
-            # own choice in back_settings is an ask
+                raise ValueError(f"the {step} picture needs a front picture, and there is none yet")
+            # the front's engine is a preference (any engine that can draw views will do); a
+            # redraw's own choice in back_settings is an ask
             body = {"picture": front, "prefer_engine": chain.picture_engine, **chain.back_settings}
-            return kind, self._post("/api/image/back", json.dumps(body).encode(), "application/json")
+            if step == "back":
+                return kind, self._post("/api/image/back", json.dumps(body).encode(), "application/json")
+            body["side"] = step
+            return kind, self._post("/api/image/side", json.dumps(body).encode(), "application/json")
         if step == "model":
             settings = {"backend": chain.engine} if chain.engine else {}
             if chain.model_seed is not None:
@@ -431,6 +440,10 @@ class ChainRunner:
             files = {"image": self._picture(chain)}
             if chain.made.get("back") and chain.engine in FRONT_BACK_ENGINES:
                 files["back"] = self._file(chain.made["back"])
+            if chain.made.get("left") and chain.engine in FRONT_BACK_ENGINES:
+                files["left"] = self._file(chain.made["left"])
+            if chain.made.get("right") and chain.engine in FRONT_BACK_ENGINES:
+                files["right"] = self._file(chain.made["right"])
             body, ctype = multipart({"settings": json.dumps(settings)}, files)
             return kind, self._post("/api/generate", body, ctype)
         if step == "finished":
@@ -492,7 +505,8 @@ class ChainRunner:
         record = {"time": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(self.now())), "chain": chain.id,
                   "title": chain.title, "prompt": chain.prompt, "want": chain.want, "step": step, "result": result,
                   "seconds": round(self.now() - started, 1), "note": note,
-                  "made": chain.made.get({"picture": "picture", "back": "back", "model": "model",
+                  "made": chain.made.get({"picture": "picture", "back": "back", "left": "left",
+                                          "right": "right", "model": "model",
                                           "finished": "finished", "rigged": "rigged",
                                           "animated": "animated", "motion": "animated"}.get(step, ""), None),
                   "log": str(log or "")[-3000:]}
@@ -602,7 +616,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         rigged_upload=text("rigged_upload") in ("1", "true"),
         finish_settings={k: finish[k] for k in FINISH_KEYS if k in finish} if isinstance(finish, dict) else {},
         move_settings={k: move[k] for k in MOVE_KEYS if k in move} if isinstance(move, dict) else {},
-        made={k: str(v) for k, v in made.items() if k in ("picture", "back", "model", "finished", "rigged") and v},
+        made={k: str(v) for k, v in made.items() if k in ("picture", "back", "left", "right", "model", "finished", "rigged") and v},
         upload=(upload.get("filename") or "upload", upload["data"]) if upload and upload.get("filename") and upload.get("data") else None,
         back_upload=back_upload,
     )

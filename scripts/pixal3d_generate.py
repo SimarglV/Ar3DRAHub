@@ -109,7 +109,7 @@ BANNER_STAGES = {1: "views", 2: "ss", 3: "shape", 4: "decode", 5: "texture", 6: 
 MATTE_LICENSES = {
     "birefnet-lite-lean": "MIT (BiRefNet)",
     "birefnet-general-lite": "MIT (BiRefNet)",
-    "u2net": "MIT code / Apache-2.0 U-2-Net",
+    "u2net": "MIT",
 }
 
 # Must match viewer/backend_catalog.py's "pixal3d" entry; a test holds them together.
@@ -183,20 +183,95 @@ def _rig(fov: float = DEFAULT_FOV) -> dict:
         for name, matrix in frames]}
 
 
+# The canonical Pixal3D four-view turntable: front, right, back, left at 0/90/180/270
+# degrees azimuth, elevation 0, FOV 20 degrees, camera distance 3.1192049980163574. These
+# are raven38/pixal3d.cpp's CANONICAL_RIG matrices (web/real_e2e/calibration.js), which are
+# the official Pixal3D cyclops sample's transforms.json verbatim. The multi-view weights are
+# validated at exactly this rig and at V=4, and the calibration code warns against composing
+# one's own rotations instead of reusing these values. Each matrix is camera-to-world, the
+# camera looking down its own -Z; view_000.png is the front, the reference view the rest of
+# the pipeline treats as primary.
+CANONICAL_DISTANCE = 3.1192049980163574
+CANONICAL_POSES = (
+    ("view_000.png", [[1.0, 0.0, 0.0, 0.0],
+                      [0.0, 0.0, -1.0, -CANONICAL_DISTANCE],
+                      [0.0, 1.0, 0.0, 0.0],
+                      [0.0, 0.0, 0.0, 1.0]]),
+    ("view_090.png", [[0.0, 0.0, 1.0, CANONICAL_DISTANCE],
+                      [1.0, 0.0, 0.0, 0.0],
+                      [0.0, 1.0, 0.0, 0.0],
+                      [0.0, 0.0, 0.0, 1.0]]),
+    ("view_180.png", [[-1.0, 0.0, 0.0, 0.0],
+                      [0.0, 0.0, 1.0, CANONICAL_DISTANCE],
+                      [0.0, 1.0, 0.0, 0.0],
+                      [0.0, 0.0, 0.0, 1.0]]),
+    ("view_270.png", [[0.0, 0.0, -1.0, -CANONICAL_DISTANCE],
+                      [-1.0, 0.0, 0.0, 0.0],
+                      [0.0, 1.0, 0.0, 0.0],
+                      [0.0, 0.0, 0.0, 1.0]]),
+)
+
+
+def turntable_rig(fov: float = DEFAULT_FOV) -> dict:
+    """The transforms.json for a four-view build: the canonical turntable cameras.
+
+    Frame 0 (`view_000.png`) is the front. `mesh_scale` is 1, matching the [-0.5, 0.5]^3
+    cube the rig is defined around, so `pad_view`'s framing and Pixel Match's projection
+    agree with it the way the two-view `_rig` does.
+    """
+    return {"camera_angle_x": fov, "mesh_scale": 1, "frames": [
+        {"file_path": name, "transform_matrix": matrix, "camera_angle_x": fov}
+        for name, matrix in CANONICAL_POSES]}
+
+
+def write_views(views, model_dir: Path, paint_dir: Path, rig: dict | None = None) -> None:
+    """Stage `views` for Pixal3D (`model_dir`, 768 px) and Pixel Match (`paint_dir`).
+
+    `views` is an ordered list of ``(file_path, cutout RGBA)`` in turntable order, the front
+    (`view_000.png`) first; `rig` is the transforms.json dict and defaults to the canonical
+    four-view `turntable_rig`. Pixel Match gets copies at the pictures' own size (never below
+    768), framed the same way, so a 1024 picture keeps its detail in the paint; the camera is
+    angle-based, so one rig serves both sizes.
+    """
+    rig = turntable_rig() if rig is None else rig
+    if [name for name, _ in views] != [frame["file_path"] for frame in rig["frames"]]:
+        raise ValueError("the view names do not match the rig's frames")
+    paint_size = max(VIEW_SIZE, *(dim for _, cut in views for dim in cut.size))
+    for folder, size in ((model_dir, VIEW_SIZE), (paint_dir, paint_size)):
+        folder.mkdir(parents=True, exist_ok=True)
+        for name, cut in views:
+            pad_view(cut, size).save(folder / name)
+        (folder / "transforms.json").write_text(json.dumps(rig, indent=2) + "\n")
+
+
 def write_front_back_views(front, back, model_dir: Path, paint_dir: Path) -> None:
     """Stage the two cut-outs for Pixal3D (`model_dir`, 768 px) and for Pixel Match
     (`paint_dir`, the run's `.svviews`), with one camera rig for both.
 
     Pixel Match gets copies at the pictures' own size (never below 768), framed the same
     way, so a 1024 picture keeps its detail in the paint; the camera is angle-based, so
-    the same rig serves both sizes.
+    the same rig serves both sizes. The two-view form of `write_views`.
     """
-    paint_size = max(VIEW_SIZE, *front.size, *back.size)
-    for folder, size in ((model_dir, VIEW_SIZE), (paint_dir, paint_size)):
-        folder.mkdir(parents=True, exist_ok=True)
-        pad_view(front, size).save(folder / "view_000.png")
-        pad_view(back, size).save(folder / "view_180.png")
-        (folder / "transforms.json").write_text(json.dumps(_rig(), indent=2) + "\n")
+    write_views([("view_000.png", front), ("view_180.png", back)], model_dir, paint_dir,
+                rig=_rig())
+
+
+def cut_view(path: Path, output: Path, tag: str):
+    """The cut-out RGBA for one view picture, matting it first unless it already has alpha.
+
+    A background left in becomes geometry (a grey studio backdrop came back as two white
+    sheets), so every view is cut out the way the front is. The matted file is written
+    beside `output` as `<stem>__<tag>_matted.png`.
+    """
+    from PIL import Image
+
+    path = path.resolve()
+    with Image.open(path) as opened:
+        cut = opened.convert("RGBA") if has_alpha(path) else None
+    if cut is not None:
+        return cut
+    matted, _ = matte(path, output.with_name(f"{output.stem}__{tag}_matted.png"))
+    return Image.open(matted).convert("RGBA")
 
 
 def build_multiview_command(views: Path, output: Path, res: int, seed: int,
@@ -403,7 +478,7 @@ def reuse_problem(shape: Path, has_back: bool) -> str | None:
         break
     else:
         return None   # no record: the original behaviour was to allow it
-    built_with_back = views == "front + back"
+    built_with_back = views in ("front + back", "four views")
     if built_with_back and not has_back:
         return f"{shape.name} was built from front + back pictures: give --back too"
     if has_back and not built_with_back:
@@ -553,6 +628,16 @@ def main() -> int:
         help="a picture of the back (scripts/make_back_view.py draws one): builds from front "
              "and back with the multi-view weights, and Finish paints from both",
     )
+    parser.add_argument(
+        "--left", type=Path, default=None,
+        help="a picture of the subject's LEFT side, to build from four views; goes with "
+             "--right and --back (view_090 in the canonical turntable)",
+    )
+    parser.add_argument(
+        "--right", type=Path, default=None,
+        help="a picture of the subject's RIGHT side, to build from four views; goes with "
+             "--left and --back (view_270 in the canonical turntable)",
+    )
     parser.add_argument("--models", type=Path, default=None,
                         help="weights folder (default: single-view, or multi-view with --back)")
     parser.add_argument("--cli", type=Path, default=CLI)
@@ -564,9 +649,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    for picture in (args.image, args.back, args.reuse_shape):
+    for picture in (args.image, args.back, args.left, args.right, args.reuse_shape):
         if picture is not None and not picture.is_file():
             raise SystemExit(f"not found: {picture}")
+    if (args.left is None) != (args.right is None):
+        raise SystemExit("--left and --right go together: a four-view build needs both sides")
+    if args.left is not None and args.back is None:
+        raise SystemExit("--left and --right need --back: a four-view build")
     if args.reuse_shape is not None and not shape_supported(args.cli):
         raise SystemExit("this trellis-cli cannot repaint a saved shape. Re-apply "
                          "scripts/patch_pixal3d_shape_reuse.py and rebuild")
@@ -622,20 +711,24 @@ def main() -> int:
     if args.back is not None:
         from PIL import Image
 
-        back = args.back.resolve()
-        with Image.open(back) as opened:
-            back_cut = opened.convert("RGBA") if has_alpha(back) else None
-        if back_cut is None:
-            back_path, _ = matte(back, args.output.with_name(f"{args.output.stem}__back_matted.png"))
-            back_cut = Image.open(back_path).convert("RGBA")
-        with Image.open(image) as opened:
-            front_cut = opened.convert("RGBA")
+        front_cut = Image.open(image).convert("RGBA")
+        back_cut = cut_view(args.back, args.output, "back")
         model_views = args.output.with_suffix(".mvinput")
-        write_front_back_views(front_cut, back_cut, model_views,
-                               args.output.with_suffix(".svviews"))
+        paint_views = args.output.with_suffix(".svviews")
+        if args.left is not None:
+            # Four views, the canonical turntable: front, the subject's left side (view_090),
+            # back, the subject's right side (view_270). The side pictures are cut out too.
+            views = [("view_000.png", front_cut),
+                     ("view_090.png", cut_view(args.left, args.output, "left")),
+                     ("view_180.png", back_cut),
+                     ("view_270.png", cut_view(args.right, args.output, "right"))]
+            write_views(views, model_views, paint_views)
+            print(f"[pixal3d] four views: {image.name} + back + left + right", flush=True)
+        else:
+            write_front_back_views(front_cut, back_cut, model_views, paint_views)
+            print(f"[pixal3d] front + back: {image.name} + {args.back.name}", flush=True)
         command = build_multiview_command(model_views, args.output, args.res, args.seed,
                                           args.models, args.cli, args.gss, args.gsh)
-        print(f"[pixal3d] front + back: {image.name} + {back.name}", flush=True)
     else:
         command = build_command(
             image, args.output, args.res, args.seed, args.fov,
@@ -684,7 +777,12 @@ def main() -> int:
                       seconds=seconds, steps=steps)
     if args.back is not None:
         record["back_input"] = {"path": str(args.back), "sha256": sha256_file(args.back)}
-        record["parameters"]["views"] = "front + back"
+        if args.left is not None:
+            record["left_input"] = {"path": str(args.left), "sha256": sha256_file(args.left)}
+            record["right_input"] = {"path": str(args.right), "sha256": sha256_file(args.right)}
+            record["parameters"]["views"] = "four views"
+        else:
+            record["parameters"]["views"] = "front + back"
     if save_shape is not None and save_shape.is_file():
         record["shape"] = save_shape.name
     if load_shape is not None:

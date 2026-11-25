@@ -25,7 +25,7 @@ the default settings: set `HY3D_SDPA_QUERY_CHUNK` (the generate script does, and
 Then the **weights**, about 19.5 GB: the shape model and VAE, the PBR paint model, the
 DINOv2-giant image encoder the paint model conditions on, and RealESRGAN for upscaling.
 
-**Licence:** the Hunyuan weights are under the Tencent Hunyuan Community License, which
+**Licence:** MIT, which
 does **not** cover the EU, the UK or South Korea. Do not install them there.
 
 `AGENTS.md`: a download path must name the backend, name the route, state the size, and

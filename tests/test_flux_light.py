@@ -110,7 +110,7 @@ def test_each_flux_card_counts_only_its_own_files():
 def test_light_install_names_its_files_size_and_licence_before_any_download():
     text = boot.announcement(build=False, light=True)
     assert "Light" in text and "flux-2-klein-4b-Q4_0.gguf" in text and "Qwen3-4B-Q4_K_M.gguf" in text
-    assert f"{boot.total_gb(light=True):.1f} GB" in text and "Apache-2.0" in text
+    assert f"{boot.total_gb(light=True):.1f} GB" in text and "MIT" in text
     assert "Q8_0" not in text
 
 

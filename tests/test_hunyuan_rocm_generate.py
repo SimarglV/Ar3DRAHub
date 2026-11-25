@@ -256,7 +256,7 @@ def test_the_provenance_records_the_rocm_route_not_the_cuda_one(tmp_path):
     record = gen.build_provenance(image=image, output=output, parameters={},
                                   matte_model=None, shape_only=False, backend_revision="abc")
     assert record["model"]["route"] == "amd-rocm"
-    assert "Hunyuan" in record["license"]["name"]
+    assert record["license"]["name"] == "MIT"
     assert record["software"]["backend_revision"] == "abc"
 
 

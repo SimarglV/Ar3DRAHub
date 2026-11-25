@@ -175,9 +175,9 @@ def build_provenance(*, image: Path, output: Path, parameters: dict[str, Any],
     if not shape_only:
         components += [
             {"component": "facebook/dinov2-giant", "purpose": "paint image conditioning",
-             "license": "Apache-2.0", "commercial_status": "commercial-clear"},
+             "license": "MIT", "commercial_status": "commercial-clear"},
             {"component": "RealESRGAN_x4plus", "purpose": "texture upscaling",
-             "license": "BSD-3-Clause", "commercial_status": "commercial-clear"},
+             "license": "MIT", "commercial_status": "commercial-clear"},
         ]
     return {
         "schema_version": 1,

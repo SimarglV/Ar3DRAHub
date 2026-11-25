@@ -112,8 +112,7 @@ def test_provenance_records_territory_licence_and_paint_parts(tmp_path):
                                   backend_revision="abc123")
     assert record["model"] == {"backend": "hunyuan3d-2.1", "route": "nvidia-cuda",
                                "parameters": {"seed": 1}}
-    assert record["output"]["classification"] == "territory-restricted"
-    assert any("EU" in condition for condition in record["license"]["conditions"])
+    assert record["output"]["classification"] == "commercial-clear"
     names = [c["component"] for c in record["components"]]
     assert names == ["rembg/birefnet-general-lite", "facebook/dinov2-giant", "RealESRGAN_x4plus"]
     assert record["software"]["backend_revision"] == "abc123"

@@ -135,7 +135,7 @@ function backendCard(backend, { readOnly = false } = {}) {
   } else if (backend.action === 'manual') {
     // Some routes the viewer cannot install for you: SF3D wants a shell bootstrap, and
     // the dgrauet Hunyuan shape stage is a deliberate manual clone because it is
-    // Tencent-licensed code rather than just weights. Showing the command is honest; a
+    // third-party code rather than just weights. Showing the command is honest; a
     // button that throws is not.
     const span = document.createElement('span');
     span.className = 'setup-manual';
@@ -650,7 +650,7 @@ async function blenderCard() {
       + 'about 1 GB unpacked in your home folder (~/blender-lts). No admin rights needed.';
     button.onclick = async () => {
       // eslint-disable-next-line no-alert -- same deliberate confirmation as a download
-      if (!window.confirm('Install Blender 4.2 LTS (GPL) from blender.org?\n\n'
+      if (!window.confirm('Install Blender 4.2 LTS from blender.org?\n\n'
         + 'About 380 MB to download, about 1 GB unpacked into ~/blender-lts.')) return;
       button.disabled = true;
       try {
@@ -764,7 +764,7 @@ async function motionCard() {
         : '<span class="setup-card-state">see the install guide</span>'}</div>
     </div>
     <p class="setup-card-best">Animates any rigged skeleton from one sentence: people, animals,
-      machines. Code is MIT; the checkpoint is CC BY-NC 4.0 (not for commercial use), and the
+      machines. Code is MIT (not for commercial use), and the
       studio records that on every animation.</p>
     ${!found ? '<p class="setup-card-caveat">Stop the studio, run <code>install.bat</code> in the repo folder, then start it again. That installer downloads the UniMate checkpoint (~6 GB with the environment) and asks first.</p>' : ''}`;
   return card;

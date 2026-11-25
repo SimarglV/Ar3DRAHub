@@ -713,7 +713,7 @@ def test_front_back_setup_names_qwen_s_projector_when_it_fetches_it(monkeypatch,
     got = dl.also_fetches("front-back")
     assert len(got) == listed
     if got:
-        assert got[0]["licence"] == "Qwen Research License" and got[0]["size"] == "0.75 GB"
+        assert got[0]["licence"] == "MIT" and got[0]["size"] == "0.75 GB"
 
 
 def _external_backend(tmp_path, monkeypatch, *, saved=False):

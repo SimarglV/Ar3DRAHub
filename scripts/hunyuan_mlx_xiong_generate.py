@@ -62,7 +62,7 @@ _HUNYUAN = LICENSES["hunyuan-comfyui"]
 TENCENT_LICENSE_NAME = _HUNYUAN.license_name
 TENCENT_LICENSE_URL = _HUNYUAN.license_url
 TENCENT_CONDITIONS = _HUNYUAN.conditions
-MIT_LICENSE_PATH = "hunyuan_mlx/LICENSE"
+MIT_LICENSE_PATH = "https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE"
 
 sys.path.insert(0, str(SHAPE_ROOT))
 

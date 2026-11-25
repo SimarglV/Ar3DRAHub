@@ -34,7 +34,7 @@ What matters in it:
 - **A slight view from above.** Pixal3D sees the tops and models them; the split
   stands each prop back up afterwards. At eye level, the tops come back invented.
 
-The pictures Qwen-Image makes are yours ([Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660)). The 3D props carry the Pixal3D classification: MIT for the code and flow weights, and the DINOv3 License for the bundled encoder (`commercial-clear`).
+The pictures Qwen-Image makes are yours ([Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660)). The 3D props are MIT (`commercial-clear`).
 
 ## 2. Turn it into 3D
 
@@ -72,8 +72,7 @@ each prop back to show its top. The split undoes that, and turns box-like props 
 face the front. Round and soft ones are left alone, since turning them would swing their
 painted front away.
 
-Runs live in `output/props/<sheet>__props__<time>/`. The tab shows that same Pixal3D / DINOv3
-classification.
+Runs live in `output/props/<sheet>__props__<time>/`. The tab shows the same MIT classification.
 
 ## Limits
 

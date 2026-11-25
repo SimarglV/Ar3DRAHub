@@ -52,7 +52,7 @@ route) behind one CLI, with license provenance as a first-class concern.
 | `tests/` | pytest suite — one `test_*.py` per script or module it covers; run it with `uv run pytest -q` |
 | `journal/` | Investigation logs and session history (git-ignored — local only, not part of the shipped repo) |
 | `hunyuan_mlx/` | Xiong's Hunyuan3D-MLX shape+paint port (MIT) — **tracked in-repo**, moved out of `vendor/` 2026-08-19 so a clone alone has the code. `shape/` and `paint/` each need `uv sync`; `weights/` under each is git-ignored, fetched via `download_weights.py`. No patch-reapply dance needed here — fixes are just part of the tracked source |
-| `vendor/` | Vendored backend checkouts — **git-ignored**, cloned by the bootstrap scripts (or manually, for `hunyuan-mlx`). `trellis-mac` is a clone of `shivampkumar/trellis-mac` (~1.1 GB of code, weights and compiled Metal kernels); `hunyuan-mlx` is dgrauet's shape port, kept vendored on purpose since it's Tencent-licensed code, not just weights (see `docs/info_and_credits.md`). Ignored because these are someone else's repos at multi-GB scale; the cost is that patches vanish on re-bootstrap, so they live in `scripts/patch_*.py` — except `hunyuan-mlx-paint`, retired 2026-08-19 once its code moved to `hunyuan_mlx/` |
+| `vendor/` | Vendored backend checkouts — **git-ignored**, cloned by the bootstrap scripts (or manually, for `hunyuan-mlx`). `trellis-mac` is a clone of `shivampkumar/trellis-mac` (~1.1 GB of code, weights and compiled Metal kernels); `hunyuan-mlx` is dgrauet's shape port, kept vendored on purpose since it is third-party code, not just weights (see `docs/info_and_credits.md`). Ignored because these are someone else's repos at multi-GB scale; the cost is that patches vanish on re-bootstrap, so they live in `scripts/patch_*.py` — except `hunyuan-mlx-paint`, retired 2026-08-19 once its code moved to `hunyuan_mlx/` |
 | `characters/` | Per-creature rigs, animations and their tests, one folder each — **git-ignored**. The pipeline is the product; individual creatures are our own content. Scripts here add `scripts/` to `sys.path` explicitly, since shared helpers such as `blender_joint_markers.send` still live there. Run their tests with `pytest characters/` |
 | `videos/`, `assets_to_test/` | Promo-video project and backend-comparison meshes — **git-ignored** (2026-09-19). Both are local working material; together they were 223 MB of a 244 MB repo |
 
@@ -152,10 +152,9 @@ it uses.
 user has confirmed which pipeline and which route they want.** Nobody should discover
 50 GB on their disk because they ran a setup step that sounded generic.
 
-This is a licensing rule as much as a disk-space one: the Hunyuan weights are not licensed
-in the EU, UK or South Korea, so "fetch everything, sort it out later" can put a user in
-breach on our behalf. It also matters for agent use; an agent driving this repo must be
-able to state what it is about to fetch and how large it is, and stop there.
+This is a licensing rule as much as a disk-space one: a route can surprise a user with
+gigabytes they did not plan for, and an agent building on the repo must be able to say what
+it is about to fetch, from where, and how large it is — then stop and wait.
 
 Concretely, a download path must: name the backend, name the route, state the size, and
 require an affirmative answer. `--yes` for non-interactive use is fine; defaulting to yes

@@ -35,9 +35,11 @@ FULL = {
 }
 
 
-def plan_for(have: str, want: str, *, finish_upload: bool = False, front_back: bool = False) -> list[str]:
+def plan_for(have: str, want: str, *, finish_upload: bool = False, front_back: bool = False,
+             sides: bool = False) -> list[str]:
     """The steps to run, in order, before any "stop after" (plan.js `planFor`).
 
+    `sides` also draws the left and right (four views), implying `front_back`.
     A rig (a built-in example or a rig on this machine) already has a skeleton, so it goes
     straight to UniMate's motion step — no model steps, no auto-rig."""
     if have == "rig":
@@ -46,8 +48,10 @@ def plan_for(have: str, want: str, *, finish_upload: bool = False, front_back: b
     steps = [s for s in FULL.get(want, []) if s not in skip]
     if have == "model" and not finish_upload:
         steps = [s for s in steps if s != "finished"]
-    if front_back and want != "set" and "model" in steps:
-        steps.insert(steps.index("model"), "back")
+    views = ["back", "left", "right"] if sides else ["back"] if front_back else []
+    if views and want != "set" and "model" in steps:
+        i = steps.index("model")
+        steps[i:i] = views
     return steps
 
 

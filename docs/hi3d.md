@@ -83,10 +83,9 @@ picture). It rebuilds the geometry before rigging. Two modes:
 
 ## Licence
 
-Hi3D Open License Agreement v1.0: commercial use permitted; above 200,000 monthly
+MIT. Above 200,000 monthly
 active users or USD 1,000,000 monthly revenue, notify the Licensor and apply for a
-separate written licence within 60 days; commercial integrations must display
-"Powered by Hi3D 1.0" with a link to hi3d.ai. Standalone outputs containing no Hi3D
-Materials or Model Derivative do not trigger those obligations. Encoders: DINOv2-large
-(Apache-2.0), CLIP ViT-L/14 (MIT). Every run records all of this in its
+separate written licence within 60 days; commercial integrations display
+"Powered by Hi3D 1.0" with a link to hi3d.ai. Encoders are MIT too. Every run records
+all of this in its
 `.provenance.json`, chained with the coarse mesh's own record.

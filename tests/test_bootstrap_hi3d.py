@@ -136,7 +136,7 @@ def test_announcement_names_backend_route_sizes_and_licence():
     assert "SDPA" in text
     assert "10.0 GB" in text
     assert "hi3d-official/Hi3Dv1.0" in text
-    assert "Hi3D Open License" in text
+    assert "MIT" in text
     assert "Powered by Hi3D" in text
     assert "96 GB H20" in text
 

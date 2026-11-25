@@ -22,7 +22,7 @@ def routes_ready(monkeypatch):
 
 def test_with_flux_the_announcement_names_only_the_shape_weights():
     text = boot.announcement(vision=False)
-    assert "5.9 GB" in text and "pixal3d-q8_0-v1" in text and "DINOv3" in text
+    assert "5.9 GB" in text and "pixal3d-q8_0-v1" in text and "MIT" in text
     assert "mmproj" not in text and "Qwen" not in text
 
 

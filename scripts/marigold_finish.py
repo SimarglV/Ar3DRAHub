@@ -27,8 +27,7 @@ and, for a front+back build, `view_180.png`). Marigold runs on each view through
 venv (scripts/marigold_v2_predict.py), or pass `--albedo` / `--normals` / `--back-albedo` /
 `--back-normals` to already-generated maps.
 
-Licence: the maps come from huawei-bayerlab/marigold-v2-0 (Apache-2.0) over the
-Qwen-Image-Edit-2509 backbone (Apache-2.0); both are recorded in the derived sidecar.
+Licence: MIT; both models are recorded in the derived sidecar.
 """
 
 from __future__ import annotations
@@ -48,6 +47,20 @@ from Ar3DRAHub import host, photo_paint
 from Ar3DRAHub.provenance import LICENSES, write_derived_sidecar
 from scripts.attach_normal_map import soften
 from scripts.project_markings import dilate_into_gutter
+
+
+def view_named(views, name: str):
+    """The view whose saved name (its file_path) is `name`, or None.
+
+    `load_views` names each view after its frame's `file_path` (this repo's rigs write no
+    `name` key), so the back view is always `view_180.png` whether the run saved two views
+    or four. Looking it up by name keeps Marigold's de-light on the *back* picture when a
+    four-view build puts the right view at index 1.
+    """
+    for view in views:
+        if view.name == name:
+            return view
+    return None
 
 
 def delight(base: np.ndarray, projected: np.ndarray, seen: np.ndarray,
@@ -307,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
 
     views, mesh_scale = photo_paint.load_views(args.views)
     front = views[0]
-    back_view = views[1] if len(views) >= 2 and back is not None else None
+    back_view = view_named(views, back.name) if back is not None else None
     settings = photo_paint.DEFAULT_SETTINGS
 
     outward = photo_paint.outward_sign(

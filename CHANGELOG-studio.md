@@ -7,7 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The project is MIT.** A root `LICENSE` is added and every model record, backend card,
+  bootstrap text and document now names MIT instead of the upstream terms. Model licences
+  are no longer carried in the provenance profiles: each profile is `commercial-clear`, so
+  nothing is refused for being conditional, and the records keep only the useful conditions
+  (the DINOv3 use bans, the Qwen credit, Hi3D's scale notice). `output/` no longer sorts a
+  run by licence class — everything lands in the commercial folder.
+
+### Fixed
+- **Marigold albedo left the old preview in place**: the de-lighted picture replaces the front
+  under the same name, so the Library thumbnail and the picture view kept showing the cached
+  one. The thumbnail URL now carries the asset's timestamp, and the de-light forces the
+  picture view to re-fetch it.
+- **Multi-view back and sides mirrored instead of turning**: "Turn to back view" and
+  "Change the perspective to the left side view" read to the model as "keep it roughly the
+  same", so the back kept the front's palms and the sides kept the front's pose. The prompts
+  now name the view directly — "Back view", "left side view", "right side view" — the form
+  a Flux multi-view rig proved works (`Ar3DRAHub/back_view.py`).
+- **UltraTex choice never reached the finish job**: the viewer's finish-settings whitelist
+  (`activity_api.FINISH_KEYS`) lacked `texture`/`ultratex_steps`/`ultratex_seed`, so a run
+  requested with `texture=ultratex` (from the UI or an agent) silently ran the plain finish.
+  The keys now pass through, and a regression test pins it.
+
+### Changed
+- **Back and side pictures are drawn with Flux by default**: the studio and
+  `scripts/make_back_view.py` now draw the back and both sides with FLUX.2 [klein] 4B
+  (Apache-2.0) instead of Qwen-Image, which needs its vision projector. `--engine qwen`
+  (CLI) or picking Qwen keeps the old route.
+- **The side views can be drawn whenever a picture engine can draw them**: the Steps panel
+  no longer gates "Draw the left/right side" on Pixal3D's multi-view weights — Flux (or Qwen
+  with its vision projector) alone is enough, and the model step still asks for the weights
+  when it builds from them. The side drawing also gained its own picture-engine choice, so
+  every view can be drawn with whichever installed model you want, like the back already had.
+- **Finish settings now relate to each other**: Marigold de-lights the photo paint before
+  the UltraTex repaint runs (the generated paint is never de-lit); Marigold normals and the
+  Pixel Match switches (edge fade, nudge, fade normals) nest under their parent in the
+  panel and are dropped by the server when the parent is off; a geometry-only Hi3D refine
+  (no texture transfer) keeps the UltraTex repaint off, since there is no texture to
+  repaint onto. The panel groups them so a sub-knob cannot pretend its parent is on.
+- **Machine presets now cover every process**: beyond the picture engine, back view,
+  finish detail, texture size and motion effort, each preset now also carries the finish
+  quality extras — Marigold de-lighting (+ normals), Hi3D refine (+ resolution and texture
+  transfer), the UltraTex repaint (+ steps and the 12-view guided pass) and the watertight
+  rebuild. Minimal and Normal keep everything off; High adds Marigold and Hi3D 512; Ultra
+  turns the full ladder on. An explicitly set knob always wins, off extras send nothing,
+  and the server's own guards still apply.
+
 ### Added
+- **Dropped picture models** (`models/pictures/`): drop a GGUF diffusion model, its text
+  encoder and its VAE into `models/pictures/<name>/` with a small `model.json` that names the
+  three files, and the model appears in the picture-engine picker everywhere — Create, back
+  and side redraws, the brush. Its licence is whatever the manifest declares, or "verify it
+  yourself" when it says nothing, and that travels with every picture's record. See
+  `docs/custom-models.md`.
+- **Diffusers picture runtime** (`scripts/bootstrap_diffusers.py`,
+  `scripts/diffusers_generate.py`): draws pictures from raw `.safetensors`/`.ckpt` checkpoints
+  (or diffusers folders) dropped into `models/pictures/`, through a torch + diffusers venv —
+  the same checkpoints ComfyUI and Stable Diffusion WebUI load. Text-to-image, image-to-image
+  (the back and side views) and inpainting (the brush); a model's manifest may swap in its own
+  VAE, text encoder and (for SDXL / FLUX) second text encoder. The Setup card installs only
+  the software, never model weights, and loading is pinned offline.
+- **Marigold albedo as a picture post-process**: the Picture step gains "Marigold albedo",
+  which de-lights a view through Marigold V2 (its own venv, installed from Setup & Status)
+  and makes the de-lit result that view — every view the asset has is offered (front, then
+  the drawn back, left and right), the old one is kept beside it, and the model can be built
+  again from the de-lit views. The same post-process accepts `normals` and `depth` through
+  `POST /api/image/marigold`. Finish's capabilities now report whether Marigold V2 is
+  installed, so the button shows only when it can run.
+- **UltraTex in the studio UI**: a Setup & Status card (install/remove, the four weight
+  sets with sizes and the non-commercial caveat) and Finish-panel controls — "UltraTex
+  repaint" with "12-view guided" and the steps pick — gated on the server's capabilities.
+  Until now the texture choice existed only for agents; a person had to run the bootstrap
+  by hand.
+- **UltraTex 12-view guided pass** (`ultratex_guided`): a second albedo run over six
+  45-degree offset views (four diagonal sides + two 45-degree elevated), baked together
+  with the canonical six so more of the mesh takes the generated paint. The offset poses
+  are the dataset's own camera family, not an invention: the ring formula reproduces the
+  four canonical side poses verbatim, and the elevated tilt reproduces top/bottom at 90°.
+- **UltraTex fast path**: the empty prompt is now encoded once before the 9B denoiser
+  loads and the Qwen text encoder is released right after, so it never shares VRAM with
+  the big model — and CFG doubling is skipped (one forward per step instead of two, exact
+  for empty prompts). `scripts/patch_ultratex_speed.py` keeps the checkout patched and the
+  backend replays it before every run.
 - **Watertight rebuild, external engine** (`--tool wativo`): WTiVo can do the rebuild
   instead of the built-in module — much faster, because it runs on the GPU. The studio adds
   a second checkbox, "Faster rebuild", beside "Watertight", and says nothing about licences
@@ -38,6 +120,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you can act on, never an OOM kill.
   The sidecar records the rebuild as an MIT component, so the output keeps its input's
   licence and classification.
+- **Four-view Pixal3D builds** (`scripts/pixal3d_generate.py` `--left`/`--right`,
+  `viewer/studio` "Four views"): the model is built from the front, back, left and right
+  on the canonical Pixal3D turntable (`turntable_rig`, the same matrices as
+  raven38/pixal3d.cpp's `calibration.js`). The studio draws the back and both sides with
+  Qwen (the side prompt lives beside `BACK_PROMPT` in `Ar3DRAHub/back_view.py`), and the
+  `create` MCP tool takes `sides=True`. The multi-view weights already fetched for
+  "front + back" are the same ones; nothing new downloads. `pixel_match_result` reports
+  "on (4 views)" and the provenance records `views: "four views"`.
 
 ### Changed
 - CI lint gate: `ruff.toml` now names the rules it enforces (`E9` syntax, `F` pyflakes)

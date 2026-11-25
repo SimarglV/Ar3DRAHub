@@ -21,6 +21,7 @@ from scripts.marigold_finish import (
     camera_to_object_normals,
     delight,
     texel_faces,
+    view_named,
 )
 
 
@@ -108,3 +109,17 @@ def test_a_front_and_back_view_surface_normal_points_outward():
     toward_viewer = np.array([[0.0, 0.0, 1.0]])
     assert np.allclose(camera_to_object_normals(toward_viewer, front), [[0, 0, 1]])
     assert np.allclose(camera_to_object_normals(toward_viewer, back), [[0, 0, -1]])
+
+
+def test_view_named_finds_the_back_by_name_not_position():
+    """A four-view build puts the right view at index 1; the back is still `view_180.png`."""
+    from Ar3DRAHub import photo_paint as pp
+
+    def named(name):
+        return pp.View(np.zeros((8, 8, 4), np.uint8), np.eye(4), 0.35, name)
+
+    views = [named("view_000.png"), named("view_090.png"),
+             named("view_180.png"), named("view_270.png")]
+    assert view_named(views, "view_180.png") is views[2]
+    assert view_named(views, "view_090.png") is views[1]
+    assert view_named(views, "view_999.png") is None

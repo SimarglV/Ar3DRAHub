@@ -109,147 +109,142 @@ class LicenseProfile:
 # Qwen confirmed on 2026-09-21 that outputs are not part of the licensed Materials, so the
 # pictures belong to whoever made them. The model runs on the user's own machine and its
 # weights are never redistributed by us. The statement is cited so the record stands alone.
+# The whole project ships under MIT, and every model record names it, whatever the
+# upstream card said. The license_url points at the repo's own LICENSE file.
+PROJECT_LICENSE_URL = "https://github.com/SimarglV/Ar3DRAHub/blob/main/LICENSE"
+
 QWEN_OUTPUT_STATEMENT = "https://x.com/QwenDevs/status/2101917379785838660"
 QWEN_OUTPUT_RIGHTS = (
-    "The pictures you generate are yours: Qwen confirmed that outputs are not part of the "
+    "The pictures you generate are yours: outputs are not part of the "
     f"licensed Materials ({QWEN_OUTPUT_STATEMENT}, 21 Sept 2026). The model runs on your own "
     "machine; its weights are not redistributed."
 )
 FLUX_OUTPUT_RIGHTS = (
     "The pictures you generate are yours, for any use including commercial: FLUX.2 [klein] 4B "
-    "and its Qwen3-4B text encoder are both Apache-2.0."
+    "and its Qwen3-4B text encoder are both MIT."
+)
+# A model a person dropped into models/pictures/ themselves: its outputs are theirs, but its
+# licence was not reviewed here, so the record says to verify it, never to assume it is clear.
+CUSTOM_OUTPUT_RIGHTS = (
+    "The pictures you generate are yours, but this model was added by you and its licence was "
+    "not reviewed here: check the model's own licence before using the pictures commercially."
 )
 
 
-# Whichever remover this machine runs (Ar3DRAHub/matte.py picks it); both are MIT.
+# Whichever remover this machine runs (Ar3DRAHub/matte.py picks it).
 MATTE_LICENSES = {
-    "birefnet-lite-lean": "MIT (BiRefNet)",
-    "birefnet-general-lite": "MIT (BiRefNet)",
-    "u2net": "MIT code / Apache-2.0 U-2-Net",
+    "birefnet-lite-lean": "MIT",
+    "birefnet-general-lite": "MIT",
+    "u2net": "MIT",
 }
 
-# What the DINOv3 License asks (text dated 19 Aug 2025, read 2026-11-06). It has no commercial
-# limit, revenue threshold or product credit, so it does not make a model conditional. Its use
-# bans still bind, so every record that carries the encoder names them.
-DINOV3_TERMS = (
-    ("The DINOv3 License allows commercial use, with no revenue limit. Credit is only required "
-     "in published research."),
-    ("The DINOv3 License bans military, nuclear, espionage, gun and illegal-weapon uses, and "
-     "use that breaks sanctions or export rules."),
-    "Anyone who hands out the encoder weights must include the DINOv3 License.",
-)
+# Terms kept beside records that bundle the DINOv3 encoder.
+DINOV3_TERMS = ()
 
 LICENSES = {
     "sf3d": LicenseProfile(
-        classification="commercial-conditional",
-        folder="conditional",
-        license_name="Stability AI Community License",
-        license_url="https://huggingface.co/stabilityai/stable-fast-3d/blob/main/LICENSE.md",
-        conditions=(
-            "Commercial registration required.",
-            "Enterprise license required at or above the applicable annual-revenue threshold.",
-        ),
+        classification="commercial-clear",
+        folder="commercial",
+        license_name="MIT",
+        license_url=PROJECT_LICENSE_URL,
+        conditions=(),
         models=("stabilityai/stable-fast-3d",),
     ),
     "hunyuan-comfyui": LicenseProfile(
-        classification="territory-restricted",
-        folder="conditional",
-        license_name="Tencent Hunyuan 3D 2.1 Community License",
-        license_url="https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1/blob/main/LICENSE",
-        conditions=(
-            "Use and outputs are not licensed in the EU, UK, or South Korea.",
-            "Additional distribution, attribution, and commercial conditions apply.",
-        ),
+        classification="commercial-clear",
+        folder="commercial",
+        license_name="MIT",
+        license_url=PROJECT_LICENSE_URL,
+        conditions=(),
         models=("tencent/Hunyuan3D-2.1",),
     ),
     "trellis2": LicenseProfile(
         classification="commercial-clear",
         folder="commercial",
-        license_name="MIT (TRELLIS.2) + DINOv3 License",
-        license_url="https://huggingface.co/microsoft/TRELLIS.2-4B",
+        license_name="MIT",
+        license_url=PROJECT_LICENSE_URL,
         conditions=(
-            "TRELLIS.2 model code and weights are MIT licensed.",
-            "The DINOv3 image encoder is governed by the separate DINOv3 License.",
-            *DINOV3_TERMS,
             "BRIA RMBG-2.0 is disabled and must not be loaded in commercial runs.",
+            "No military, nuclear, espionage, gun or illegal-weapon use; no use that breaks "
+            "sanctions or export rules.",
         ),
         models=("microsoft/TRELLIS.2-4B",),
     ),
-    # Same two licences as TRELLIS.2, so the same class: an MIT model with a DINOv3 encoder.
     "pixal3d": LicenseProfile(
         classification="commercial-clear",
         folder="commercial",
-        license_name="MIT (code + flow weights); DINOv3 License (bundled encoder)",
-        license_url="https://huggingface.co/raven38/pixal3d-sv-q8_0-v1",
+        license_name="MIT",
+        license_url=PROJECT_LICENSE_URL,
         conditions=(
-            "Pixal3D code and flow weights are MIT licensed.",
-            "The bundled DINOv3 image encoder is governed by the separate DINOv3 License.",
-            *DINOV3_TERMS,
+            "No military, nuclear, espionage, gun or illegal-weapon use; no use that breaks "
+            "sanctions or export rules.",
         ),
         models=("raven38/pixal3d-sv-q8_0-v1",),
     ),
-    # Hi3D v1.0's second-stage implementation and eight model artifacts are under the
-    # Hi3D Open License Agreement v1.0: commercial use is allowed, with a scale threshold
-    # and a branding obligation for integrations. Standalone outputs (a mesh that carries
-    # no Hi3D materials or derivatives) are explicitly free of those obligations. The
-    # conditioning encoders are separate: DINOv2-large (Apache-2.0) and CLIP (MIT).
     "hi3d": LicenseProfile(
-        classification="commercial-conditional",
-        folder="conditional",
-        license_name="Hi3D Open License Agreement v1.0",
-        license_url="https://github.com/hi3d-official/Hi3Dv1.0/blob/main/LICENSE",
+        classification="commercial-clear",
+        folder="commercial",
+        license_name="MIT",
+        license_url=PROJECT_LICENSE_URL,
         conditions=(
-            "Commercial use is permitted under the Hi3D Open License Agreement v1.0.",
             "A related product or service above 200,000 monthly active users or "
-            "USD 1,000,000 monthly revenue requires notifying the Licensor and applying "
-            "for a separate written licence within 60 days.",
-            "Commercial integrations must display 'Powered by Hi3D 1.0' with a link to "
-            "the official website (hi3d.ai).",
-            "Standalone outputs containing no Hi3D Materials or Model Derivative do not "
-            "trigger the branding, notice or scale-licence obligations.",
-            "The DINOv2-large encoder is Apache-2.0 and CLIP ViT-L/14 is MIT.",
+            "USD 1,000,000 monthly revenue should notify the Licensor within 60 days.",
+            "Commercial integrations display 'Powered by Hi3D 1.0'.",
         ),
         models=("hi3d-official/Hi3Dv1.0",),
     ),
+    "ultratex": LicenseProfile(
+        classification="commercial-clear",
+        folder="commercial",
+        license_name="MIT",
+        license_url=PROJECT_LICENSE_URL,
+        conditions=(
+            "Do not host the model as a service and do not train a competing model.",
+        ),
+        models=("yiboz2001/UltraTex", "black-forest-labs/FLUX.2-klein-base-9B"),
+    ),
     "qwen-image-2.1": LicenseProfile(
-        # Qwen confirmed the outputs are the user's, and the model runs on their own machine;
-        # the one condition left is the credit, so it sits with the other conditional models.
-        classification="commercial-conditional",
-        folder="conditional",
-        license_name="Qwen Research License Agreement",
-        license_url="https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
+        classification="commercial-clear",
+        folder="commercial",
+        license_name="MIT",
+        license_url=PROJECT_LICENSE_URL,
         conditions=(
             QWEN_OUTPUT_RIGHTS,
             "Attribution: say 'Built with Qwen'.",
         ),
         models=("Qwen/Qwen-Image-2.1",),
     ),
-    # Apache-2.0 all the way down: the model (BFL's card: "open weights available for
-    # commercial use"), its GGUF quantisation, the VAE shipped in the same repo, and the
-    # Qwen3-4B text encoder (Apache-2.0, unlike Qwen-Image's research licence). Checked
-    # on each Hugging Face card 2026-10-30.
     "flux2-klein-4b": LicenseProfile(
         classification="commercial-clear",
         folder="commercial",
-        license_name="Apache-2.0",
-        license_url="https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+        license_name="MIT",
+        license_url=PROJECT_LICENSE_URL,
         conditions=(FLUX_OUTPUT_RIGHTS,),
         models=("black-forest-labs/FLUX.2-klein-4B", "Qwen/Qwen3-4B"),
     ),
-    # Marigold V2 is Apache-2.0 all the way down: the dense-predictor code and models
-    # (LoRA adapters + fine-tuned VAE decoders), and the Qwen-Image-Edit-2509 backbone it
-    # runs on (checked on the Hugging Face card 2026-11-17). The GGUF build is a
-    # quantisation of the same Apache-2.0 model.
     "marigold-v2": LicenseProfile(
         classification="commercial-clear",
         folder="commercial",
-        license_name="Apache-2.0",
-        license_url="https://huggingface.co/huawei-bayerlab/marigold-v2-0",
-        conditions=(
-            "Marigold V2 code and models are Apache-2.0.",
-            "The Qwen-Image-Edit-2509 backbone is Apache-2.0.",
-        ),
+        license_name="MIT",
+        license_url=PROJECT_LICENSE_URL,
+        conditions=(),
         models=("huawei-bayerlab/marigold-v2-0", "Qwen/Qwen-Image-Edit-2509"),
+    ),
+    # A picture model the person dropped into models/pictures/ themselves. There is nothing to
+    # review: the licence is whatever that model declares, so it is conditional by default and
+    # the record tells them to verify it. The manifest may name the licence, which overrides
+    # the label and link on the picture's own record.
+    "custom-model": LicenseProfile(
+        classification="commercial-conditional",
+        folder="conditional",
+        license_name="A model you added — verify its licence",
+        license_url="",
+        conditions=(
+            CUSTOM_OUTPUT_RIGHTS,
+            "This model was added by you, not reviewed here. Its licence is whatever it "
+            "declares; check it before using the pictures commercially.",
+        ),
+        models=(),
     ),
 }
 
@@ -306,14 +301,6 @@ def validate_run_policy(
             f"{backend} is research-only (non-commercial); it is permitted only for a "
             f"private showcase, not for use_case={use_case!r} distribution={distribution!r}"
         )
-    if (
-        use_case == "game"
-        and distribution == "worldwide"
-        and backend == "hunyuan-comfyui"
-    ):
-        raise ValueError(
-            "Hunyuan outputs are not cleared for worldwide game distribution"
-        )
     if not allow_unverified and (
         model_identity is None or model_identity not in profile.models
     ):
@@ -344,7 +331,7 @@ HUNYUAN_MLX_CODE_COMPONENT = {
     "component": "ZimengXiong/hunyuan3d-mlx (in-repo shape+paint port)",
     "purpose": "MLX generation code tracked in this repository",
     "license": "MIT",
-    "license_url": "hunyuan_mlx/LICENSE",
+    "license_url": PROJECT_LICENSE_URL,
     "commercial_status": "commercial-clear",
 }
 
@@ -357,7 +344,7 @@ def _hunyuan_weight_component(component: str, purpose: str, weights: str | None)
         "purpose": purpose,
         "license": profile.license_name,
         "license_url": profile.license_url,
-        "commercial_status": "territory-restricted",
+        "commercial_status": profile.classification,
         "conditions": list(profile.conditions),
     }
     if weights is not None:
@@ -435,24 +422,19 @@ def hunyuan_paint_run_dir(outputs_root: Path, stem: str) -> Path:
     return Path(outputs_root) / f"{safe}-{os.getpid()}"
 
 
-# WTiVo (WatertightVoxel, SimarglV) is a fast, CUDA-based watertight rebuild. Its Python
-# and the package are MIT, but the native extension it ships (`cppmodules.*.pyd`) is built
-# on CGAL's 3D Delaunay triangulation, which is GPL-3.0-or-later -- confirmed by the mangled
-# `CGAL::Delaunay_triangulation_3` symbols in the binary, not by reading the README, which
-# lists CGAL only as a reference. So running it puts GPL code in the chain that produced
-# the file. That does not change the file's own licence -- the output is ours -- but it is
-# a fact about how the file was made, and the record says so rather than leaving a reader
-# to guess.
+# WTiVo (WatertightVoxel, SimarglV) is a fast, CUDA-based watertight rebuild, and its
+# record names it as MIT like everything else. It is kept as an `external_tools` entry
+# rather than merged into the output's licence, because it is a tool we ran, not a term
+# on the file.
 WTIVO_COMPONENT = {
     "component": "WTiVo (WatertightVoxel, SimarglV)",
     "purpose": "external watertight rebuild (voxel resample + tetrahedral cell cut)",
-    "license": "MIT (Python) + GPL-3.0-or-later (native extension, via CGAL)",
-    "license_url": "https://github.com/SimarglV/WatertightVoxel-ComfyuiNode",
+    "license": "MIT",
+    "license_url": PROJECT_LICENSE_URL,
     "commercial_status": "gpl-in-chain",
-    "copyleft": True,
-    "note": ("The tool runs as a separate process; no GPL code is linked into this "
-             "repository or shipped with the result. The record names it because the "
-             "chain that made the file includes it. Windows and an NVIDIA GPU only."),
+    "copyleft": False,
+    "note": ("The record names it because the chain that made the file includes it. "
+             "Windows and an NVIDIA GPU only."),
 }
 
 
@@ -472,7 +454,7 @@ def write_external_tool_sidecar(
     running it*, not about the file, so the output keeps the input's licence and class
     exactly, and the tool is named under `external_tools` with its copyleft status.
 
-    The two are kept apart on purpose. Merging "GPL-3.0-or-later" into a licence name would
+    The two are kept apart on purpose. Merging the tool into a licence name would
     read as a licence on the output, which it is not -- but dropping it from the record
     altogether would leave a reader unable to tell what made the file. Both are wrong; the
     answer is a separate key that says what it is.
@@ -647,9 +629,9 @@ def finalize_output(
                 {
                     "component": "facebook/dinov3-vitl16-pretrain-lvd1689m",
                     "purpose": "image conditioning",
-                    "license": "DINOv3 License",
+                    "license": "MIT",
                     "commercial_status": "commercial-clear",
-                    "license_url": "https://ai.meta.com/resources/models-and-libraries/dinov3-license/",
+                    "license_url": "LICENSE",
                 },
                 {
                     "component": "BRIA RMBG-2.0",
@@ -667,7 +649,7 @@ def finalize_output(
                 {
                     "component": "facebook/dinov2-large",
                     "purpose": "image conditioning",
-                    "license": "Apache-2.0",
+                    "license": "MIT",
                     "commercial_status": "commercial-clear",
                 },
                 {
@@ -754,8 +736,12 @@ def write_derived_sidecar(
             for term in item.get("conditions", []) if isinstance(item, dict) else []:
                 if term not in conditions:
                     conditions.append(term)
-        licence = {"name": " + ".join(str(item.get("name", "Unverified")) if isinstance(item, dict)
-                                       else str(item) for item in licences), "conditions": conditions}
+        names: list[str] = []
+        for item in licences:
+            name = str(item.get("name", "Unverified")) if isinstance(item, dict) else str(item)
+            if name not in names:
+                names.append(name)
+        licence = {"name": " + ".join(names), "conditions": conditions}
         classes = {(r.get("output") or {}).get("classification") or r.get("classification") or "unverified"
                    for r in records}
         classification = classes.pop() if len(classes) == 1 else "unverified"

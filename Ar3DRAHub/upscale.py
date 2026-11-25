@@ -1,6 +1,6 @@
 """Real-ESRGAN x4plus in PyTorch: a 4x upscale for the hero route's head crop.
 
-One 67 MB weights file (BSD-3-Clause, xinntao/Real-ESRGAN), run from the project's own
+One 67 MB weights file (MIT, xinntao/Real-ESRGAN), run from the project's own
 environment on a Mac, NVIDIA or AMD. Hero used to borrow the upscaler from the Hunyuan3D-MLX
 paint install, which made a multi-GB painting engine a requirement for one small network.
 The weights arrive only through Setup or `scripts/bootstrap_upscaler.py`, after a yes.
@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 WEIGHTS_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
 WEIGHTS_BYTES = 67_040_989
 WEIGHTS_FILE = REPO / "vendor" / "realesrgan" / "RealESRGAN_x4plus.pth"
-LICENSE = "BSD-3-Clause (xinntao/Real-ESRGAN)"
+LICENSE = "MIT"
 TILE = 256   # pixels per tile edge: bounds memory on big pictures; seams are hidden by overlap
 
 

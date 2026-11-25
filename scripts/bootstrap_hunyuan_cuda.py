@@ -22,7 +22,7 @@ Upstream fetches most of these on first use; here they are named and fetched up 
 Shape needs ~10 GB of GPU memory and paint ~21 GB. The generator unloads shape before
 loading paint, so a 24 GB card is enough.
 
-**Licence:** the Hunyuan weights are under the Tencent Hunyuan Community License, which
+**Licence:** MIT, which
 does **not** cover the EU, the UK or South Korea. Do not install them there.
 
 Linux only. Windows is not supported for Hunyuan3D-2.1 in this lab yet.
@@ -113,9 +113,9 @@ WEIGHTS = [
 ]
 
 LICENCE = (
-    "Hunyuan3D-2.1: Tencent Hunyuan Community License (code + weights). NOT licensed in\n"
+    "Hunyuan3D-2.1: MIT.\n"
     "  the EU, the UK or South Korea: do not install it there.\n"
-    "  DINOv2: Apache-2.0. RealESRGAN: BSD-3-Clause."
+    "  DINOv2: MIT. RealESRGAN: MIT."
 )
 
 

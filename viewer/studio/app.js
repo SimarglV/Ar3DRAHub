@@ -4,7 +4,7 @@
 import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, canFixShown, fixBlockedNote, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId, statsRows, canReveal } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog, copyDetails, logScroll, moveBox, resizeBox, followJob, statusUrlFor, jobEnd } from './jobs.js';
-import { stepBody, wireStep, wireBrush, wireVersions } from './steps.js';
+import { stepBody, wireStep, wireBrush, wireVersions, wireMarigold } from './steps.js';
 import { retryWant } from './plan.js';
 import { closeBrushStage } from './brush.js';
 import { openCreate, runChain } from './create.js';
@@ -72,7 +72,9 @@ let libraryReady = false;
 let libraryLoadToken = 0;
 let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
 let hi3dReady = null;     // null: unknown — the server's /api/finish/capabilities decides
+let ultratexReady = null, ultratexNote = null;   // the UltraTex texture repaint: NVIDIA + the 36 GB setup
 let watertightReady = null, watertightNote = null;   // same: the script and its packages, checked by the server
+let marigoldReady = null;                            // Marigold V2 as a picture post-process (image -> albedo)
 let wativoReady = null, wativoNote = null;   // the external engine: a WTiVo checkout plus a Python that has torch
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let createHandle = null;
@@ -117,7 +119,7 @@ function assetButton(asset, { sub = false } = {}) {
   // a small server-made copy, not the full picture (often a megabyte each); a model with no
   // picture gets one rendered in the browser, so the row is not just the logo
   const thumb = asset.picture
-    ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">`
+    ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}&v=${asset.updated}" alt="" loading="lazy">`
     : `<img class="mark" data-thumb-id="${escape(asset.id)}" src="${LOGO}" alt="">`;
   const when = new Date(asset.updated * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const name = sub ? `v${asset.version} · ${statusText(asset)}` : asset.name;
@@ -182,7 +184,7 @@ function renderSteps(asset) {
     // a finished model can be finished again at another detail level; a rigged one gets more moves
     const redo = state === 'done' && ({
       // a picture no model is made from yet can still be fixed with the brush
-      picture: !!asset.prompt || (!!asset.picture && (!asset.model || !!asset.back || !!frontBack?.ready)), model: !!asset.picture && !!engines.length, finished: asset.kind !== 'prop set',
+      picture: !!asset.prompt || (!!asset.picture && (!asset.model || !!asset.back || !!asset.left || !!asset.right || pictureEngines.some((e) => e.can_draw_backs) || marigoldReady)), model: !!asset.picture && !!engines.length, finished: asset.kind !== 'prop set',
       rigged: asset.kind !== 'prop set', animated: true,
     }[step.id]);
     const body = state === 'now' || redo ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>` : '';
@@ -192,6 +194,7 @@ function renderSteps(asset) {
     if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
     wireBrush(card, asset, ctx);
     wireVersions(card, asset, ctx);
+    wireMarigold(card, asset, ctx);
     card.querySelector('[data-newpicture]')?.addEventListener('click', () => openCreateSheet({
       text: asset.prompt, want: retryWant(asset.picture_want, asset.kind),
       pictureSettings: asset.picture_settings,
@@ -203,7 +206,7 @@ function renderSteps(asset) {
     viewingStep = null;
     viewer.setClips([]);
     // the back keeps its name when drawn again, so ask past the browser's copy
-    viewer.showImage(fresh(asset.picture), 'What the model was made from.', asset.back ? fresh(asset.back) : null);
+    viewer.showImage(fresh(asset.picture), 'What the model was made from.', asset.back ? fresh(asset.back) : null, ['Front', 'Back'], sideViews(asset));
     renderSteps(asset);
   });
   $('steps').querySelectorAll('[data-viewstep]').forEach((button) => button.addEventListener('click', () => {
@@ -270,7 +273,7 @@ const skinCtx = {
 
 function stepLink(asset, stepId) {
   if (stepId === 'picture' && canViewPictures(asset)) {
-    return ` · <button type="button" class="linkish" data-pictures>${viewingPictures ? 'Show model' : `View picture${asset.back ? 's' : ''}`}</button>`;
+    return ` · <button type="button" class="linkish" data-pictures>${viewingPictures ? 'Show model' : `View picture${(asset.back || asset.left || asset.right) ? 's' : ''}`}</button>`;
   }
   const file = stepFile(asset, stepId);
   const view = canViewStep(asset, stepId)
@@ -410,6 +413,13 @@ $('vatBtn').addEventListener('click', async () => {
 
 // A picture redrawn, brushed or swapped keeps its file name: ask past the browser's copy
 const fresh = (relative) => `${url(relative)}?v=${Date.now()}`;
+// the left/right views as [url, label] pairs for the viewer, or null when there are none
+const sideViews = (asset, resolve = fresh) => {
+  const out = [];
+  if (asset.left) out.push([resolve(asset.left), 'Left']);
+  if (asset.right) out.push([resolve(asset.right), 'Right']);
+  return out.length ? out : null;
+};
 const libraryPictureLoader = createLibraryPictureLoader({
   fetchPicture: (picture) => fetch(picture),
   freshUrl: fresh,
@@ -427,8 +437,11 @@ const ctx = {
   get motionNote() { return motionNote; },
   get blenderReady() { return blenderReady; },
   get hi3dReady() { return hi3dReady; },
+  get ultratexReady() { return ultratexReady; },
+  get ultratexNote() { return ultratexNote; },
   get watertightReady() { return watertightReady; },
   get watertightNote() { return watertightNote; },
+  get marigoldReady() { return marigoldReady; },
   get wativoReady() { return wativoReady; },
   get wativoNote() { return wativoNote; },
   get frontBack() { return frontBack; },
@@ -444,6 +457,17 @@ const ctx = {
     viewer.showImage(fresh(current.picture), file === current.back ? 'The back in use.' : 'A kept version of the back.', fresh(file));
     const toggle = $('steps').querySelector('[data-pictures]');
     if (toggle) toggle.textContent = 'Show model';
+  },
+  // the front (and its views) full size, freshly fetched. A de-lighted picture replaces the
+  // front in place under the same name, so a cached URL would keep showing the old one.
+  showPictures: () => {
+    if (!current?.picture) return;
+    viewingPictures = true;
+    viewingStep = null;
+    viewer.setClips([]);
+    viewer.showImage(fresh(current.picture), 'What the model was made from.',
+      current.back ? fresh(current.back) : null, ['Front', 'Back'], sideViews(current));
+    renderSteps(current);
   },
   asset: () => current,
   // a Steps-panel run goes through the same chain as Create: a reopened studio picks it back
@@ -505,7 +529,8 @@ function show(asset) {
     else if (asset.picture) {
       const inRun = making && !making.finished && !making.failed && making.made?.picture === asset.picture;
       viewer.showImage(fresh(asset.picture), inRun ? 'Being made into 3D now. Its progress is above.'
-        : 'A picture so far. Make it 3D from the Steps panel.', asset.back ? fresh(asset.back) : null);
+        : 'A picture so far. Make it 3D from the Steps panel.', asset.back ? fresh(asset.back) : null,
+        ['Front', 'Back'], sideViews(asset));
     }
     else viewer.showEmpty('Nothing to show for this asset yet.');
   }
@@ -651,10 +676,13 @@ async function loadTools() {
   ]);
   blenderReady = finishCaps ? !!finishCaps.ready : true;   // unknown: let the server say
   hi3dReady = finishCaps ? !!finishCaps.hi3d : null;       // null: unknown, let the server say
+  ultratexReady = finishCaps ? !!finishCaps.ultratex : null;
+  ultratexNote = finishCaps?.ultratex_note || null;
   watertightReady = finishCaps ? !!finishCaps.watertight : null;
   watertightNote = finishCaps?.watertight_note || null;
   wativoReady = finishCaps ? !!finishCaps.wativo : null;
   wativoNote = finishCaps?.wativo_note || null;
+  marigoldReady = finishCaps ? !!finishCaps.marigold : null;
   engines = readyEngines(catalog);
   frontBack = catalog?.front_back || null;
   pictureEngines = catalog?.picture_engines || [];
@@ -726,8 +754,8 @@ function showMaking() {
   const shown = m.rigged || m.finished || m.model;
   if (shown && making.shown !== shown) { viewer.load(url(shown), { label: making.title }); making.shown = shown; }
   else if (!shown && m.picture && making.shown !== `${m.picture}|${m.back || ''}`) {
-    viewer.showImage(url(m.picture), '', m.back ? url(m.back) : null);   // front + back side by side
-    making.shown = `${m.picture}|${m.back || ''}`;
+    viewer.showImage(url(m.picture), '', m.back ? url(m.back) : null, ['Front', 'Back'], sideViews(m, url));   // the views side by side
+    making.shown = `${m.picture}|${m.back || ''}|${m.left || ''}|${m.right || ''}`;
   }
   else if (!shown && !m.picture && making.shown !== 'empty') { viewer.showEmpty(''); making.shown = 'empty'; }
   drawProgress();

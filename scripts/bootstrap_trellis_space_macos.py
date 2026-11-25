@@ -189,7 +189,7 @@ def weight_announcement() -> str:
     )
     lines += [
         "",
-        "  licence: TRELLIS.2 is MIT. DINOv3 is gated: request access and sign in",
+        "  licence: MIT. DINOv3 is gated: request access and sign in",
         "           before this download, or that part is refused.",
         "",
     ]

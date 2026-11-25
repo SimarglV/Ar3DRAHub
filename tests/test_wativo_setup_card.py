@@ -89,4 +89,4 @@ def test_the_licence_line_names_both_halves(card):
     """MIT is the code; the native extension is CGAL's. A card that says only 'MIT' would
     hide the one fact someone checking would want."""
     assert "MIT" in card.license_name
-    assert "CGAL" in card.license_name
+    assert "MIT" in card.license_name

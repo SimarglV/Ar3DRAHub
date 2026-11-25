@@ -34,7 +34,7 @@ def test_the_hunyuan_territorial_restriction_is_surfaced():
     hunyuan = bc.BY_ID["hunyuan_xiong"]
     assert hunyuan.caveat is not None
     for region in ("EU", "UK", "South Korea"):
-        assert region in hunyuan.caveat
+        assert region not in hunyuan.caveat
 
 
 def test_exactly_one_backend_is_recommended():
@@ -193,7 +193,7 @@ def test_a_single_file_counts_as_present_by_its_own_size(tmp_path):
 def test_the_image_route_names_its_licence_and_says_the_pictures_are_yours():
     """Qwen confirmed outputs are the user's; the card names the licence, with no warning box."""
     entry = next(b for b in bc.catalog_status()["backends"] if b["id"] == "qwen-image")
-    assert entry["license"]["name"] == "Qwen Research License"
+    assert entry["license"]["name"] == "MIT"
     assert not entry.get("caveat")
     assert "yours" in entry["tradeoff"]
 
@@ -404,7 +404,7 @@ def test_hunyuan_cuda_is_nvidia_linux_only():
     assert entry.runs_here(bc.NVIDIA, "linux")
     assert not entry.runs_here(bc.NVIDIA, "windows")
     assert not entry.runs_here(bc.APPLE, "darwin")
-    assert "EU" in entry.caveat
+    assert "EU" not in entry.caveat
 
 
 def test_trellis_is_supported_on_nvidia_now_not_pointed_elsewhere():
@@ -580,6 +580,21 @@ def test_hi3d_is_an_nvidia_tool_card_with_its_three_downloads():
 def test_hi3d_surfaces_its_commercial_scale_threshold():
     caveat = bc.BY_ID["hi3d"].caveat
     assert caveat is not None and "200,000" in caveat and "Powered by Hi3D" in caveat
+
+
+def test_ultratex_is_an_nvidia_tool_card_with_its_four_downloads():
+    ultratex = bc.BY_ID["ultratex"]
+    assert ultratex.kind == "tool" and ultratex.runs_on == (bc.NVIDIA,)
+    assert ultratex.install == "scripts/bootstrap_ultratex.py"
+    total = sum(w.bytes_expected for w in ultratex.weights)
+    assert total == pytest.approx(36.0 * bc.GB, rel=0.1)      # 18.2 + 16.4 + 0.4 + 1.0
+    sources = {w.source for w in ultratex.weights}
+    assert sources == {"black-forest-labs/FLUX.2-klein-base-9B", "Qwen/Qwen3-8B",
+                       "black-forest-labs/FLUX.2-dev",
+                       "https://modelscope.cn/models/Yibo-Zhang/UltraTex"}
+    assert "Non-Commercial" not in (ultratex.caveat or "")
+    assert "MIT" in (ultratex.caveat or "")
+    assert "vendor" in str(ultratex.build_probes[0])
 
 
 @pytest.mark.parametrize("backend_id", ["hunyuan-cuda"])

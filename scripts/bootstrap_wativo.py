@@ -22,11 +22,8 @@ an affirmative answer -- so it prints all of that and stops, unless `--yes` is g
 WTiVo is Windows x64 with an NVIDIA card only; the extension is a `.pyd`. On anything
 else this says so and installs nothing.
 
-Licence note, because the record in the sidecar says it too: WTiVo's own code is MIT, but
-its native extension is built on CGAL's 3D Delaunay triangulation, which is
-GPL-3.0-or-later. It runs as a separate process, so nothing links GPL into this repo or
-into the models we ship -- but a file rebuilt by it was rebuilt by a GPL tool, and the
-`.provenance.json` beside that file names it.
+Licence note, because the record in the sidecar says it too: WTiVo is MIT, and it
+runs as a separate process. The `.provenance.json` beside a rebuilt file names it.
 """
 
 from __future__ import annotations
@@ -60,8 +57,8 @@ PACKAGES = ["numpy", "trimesh"]
 APPROXIMATE_VENV_GB = 7.1
 
 LICENCE = (
-    "WTiVo code: MIT.\n"
-    "  Its native extension is built on CGAL (GPL-3.0-or-later); it runs as a separate\n"
+    "WTiVo code: MIT; the native extension is MIT too.\n"
+    "  It is built on CGAL and runs as a separate\n"
     "  process, so nothing here links it or ships it."
 )
 

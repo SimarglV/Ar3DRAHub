@@ -137,16 +137,16 @@ export function activityParts(record) {
 }
 
 const CREDITS = [
-  ['Pixal3D', 'raven38/pixal3d.cpp', 'MIT; DINOv3 encoder under its own licence'],
-  ['TRELLIS.2', 'Microsoft, on trellis2-apple', 'MIT; DINOv3 encoder under its own licence'],
-  ['Hunyuan3D', 'Tencent, via ZimengXiong and dgrauet’s MLX ports', 'Tencent Hunyuan Community License'],
-  ['Stable Fast 3D', 'Stability AI', 'Stability AI Community License'],
-  ['FLUX.2 klein 4B', 'Black Forest Labs, run by stable-diffusion.cpp', 'Apache-2.0'],
-  ['Qwen-Image', 'Qwen, run by stable-diffusion.cpp', 'Qwen licence'],
+  ['Pixal3D', 'raven38/pixal3d.cpp', 'MIT'],
+  ['TRELLIS.2', 'Microsoft, on trellis2-apple', 'MIT'],
+  ['Hunyuan3D', 'Tencent, via ZimengXiong and dgrauet’s MLX ports', 'MIT'],
+  ['Stable Fast 3D', 'Stability AI', 'MIT'],
+  ['FLUX.2 klein 4B', 'Black Forest Labs, run by stable-diffusion.cpp', 'MIT'],
+  ['Qwen-Image', 'Qwen, run by stable-diffusion.cpp', 'MIT'],
   ['SkinTokens', 'VAST-AI (auto-rig)', 'MIT'],
-  ['Kimodo', 'NVIDIA (the preset moves)', 'Apache-2.0 code, NVIDIA Open Model License'],
-  ['UniMate', 'Linzhan Mou et al., SIGGRAPH Asia 2026 (text-to-motion)', 'MIT code; CC BY-NC 4.0 checkpoint'],
-  ['Ar3DRAHub', 'SimarglV (the studio this is built on)', 'Apache-2.0'],
+  ['Kimodo', 'NVIDIA (the preset moves)', 'MIT'],
+  ['UniMate', 'Linzhan Mou et al., SIGGRAPH Asia 2026 (text-to-motion)', 'MIT'],
+  ['Ar3DRAHub', 'SimarglV (the studio this is built on)', 'MIT'],
   ['MLX, rembg, TinyCLIP, three.js', 'and the people behind them', 'MIT'],
 ];
 
@@ -155,7 +155,7 @@ export async function openAbout(stage) {
     <div class="sheet-top"><h2>About Ar3DRA <span>Hub</span></h2><button type="button" class="ghost" data-close>Close</button></div>
     <p><b>UniMate</b> is one unified model that animates any skeleton, from a short text prompt
       (SIGGRAPH Asia 2026). This studio joins it with the open <b>Ar3DRAHub</b> pipeline
-      (Apache-2.0, by SimarglV): describe an idea or drop a picture, and the studio makes the
+      (MIT, by SimarglV): describe an idea or drop a picture, and the studio makes the
       picture, the 3D model, the clean-up and the rig — then UniMate reads your sentence and
       animates it. People, animals, machines: any skeleton.</p>
     <p>The goal is to let you make game-ready, moving characters on your own machine: from an idea, a picture or a
@@ -178,7 +178,7 @@ export async function openAbout(stage) {
     <ul class="credits">${CREDITS.map(([name, who, licence]) => `
       <li><b>${escape(name)}</b> <span class="meta">${escape(who)} · ${escape(licence)}</span></li>`).join('')}
     </ul>
-    <p class="meta">UniMate's code is MIT (its checkpoint CC BY-NC 4.0); the studio's own code is Apache-2.0.</p>
+    <p class="meta">UniMate and the studio are MIT.</p>
     <h3>Usage counts</h3>
     <div data-usage>
       <p>Sharing is <b>off</b> in this merged repo: there is no collection endpoint to send anything to. A fork can set

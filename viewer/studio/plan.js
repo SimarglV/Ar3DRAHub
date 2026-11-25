@@ -21,7 +21,7 @@ export const ALLOWED = {
 };
 
 // Steps by id; `set` finishes by splitting the sheet into props.
-export const STEP_LABELS = { picture: 'Picture', back: 'Back picture', model: '3D model', finished: 'Finish', split: 'Split into props', rigged: 'Rig', animated: 'Animate', motion: 'UniMate motion', skin: 'Skin' };
+export const STEP_LABELS = { picture: 'Picture', back: 'Back picture', left: 'Left view', right: 'Right view', model: '3D model', finished: 'Finish', split: 'Split into props', rigged: 'Rig', animated: 'Animate', motion: 'UniMate motion', skin: 'Skin' };
 
 /** The old picture's requested goal, or its asset category when history is unavailable. */
 export function retryWant(want, category) {
@@ -32,9 +32,11 @@ export function retryWant(want, category) {
 /** The steps to run, in order, before any "stop after".
  *  `frontBack`: draw a back picture and build the 3D model from front and back (one prop or
  *  a character; a sheet of nine has no back).
+ *  `sides`: also draw the left and right, so the model builds from four views (the
+ *  canonical Pixal3D turntable). Implies `frontBack`.
  *  A rig (a built-in example or a rig on this machine) already has a skeleton, so it goes
  *  straight to UniMate's motion step — no model steps, no auto-rig. */
-export function planFor(have, want, { finishUpload = false, frontBack = false } = {}) {
+export function planFor(have, want, { finishUpload = false, frontBack = false, sides = false } = {}) {
   if (have === 'rig') return ['motion'];
   const full = {
     picture: ['picture'],
@@ -47,8 +49,9 @@ export function planFor(have, want, { finishUpload = false, frontBack = false } 
   let steps = full.filter((s) => !skip.includes(s));
   // an uploaded model may already be game-ready; finishing it is the user's choice
   if (have === 'model' && !finishUpload) steps = steps.filter((s) => s !== 'finished');
-  if (frontBack && want !== 'set' && steps.includes('model')) {
-    steps.splice(steps.indexOf('model'), 0, 'back');
+  const views = sides ? ['back', 'left', 'right'] : frontBack ? ['back'] : [];
+  if (views.length && want !== 'set' && steps.includes('model')) {
+    steps.splice(steps.indexOf('model'), 0, ...views);
   }
   return steps;
 }

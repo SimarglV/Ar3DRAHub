@@ -32,6 +32,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_trellis_space_macos.py` | Bootstrap TRELLIS.2 on macOS from Microsoft's pinned Space source. |
 | `bootstrap_trellis_cuda.py` | Install TRELLIS.2 for Linux with an NVIDIA card: Microsoft's own code, built for CUDA. |
 | `bootstrap_hi3d.py` | Install Hi3D v1.0: the official Linux stack, or this repo's own Windows port. |
+| `bootstrap_ultratex.py` | Install UltraTex texturing: the official repo, its venv, and about 36 GB of weights. |
 | `patch_hi3d_sdpa.py` | Replace flash-attn with an SDPA fallback in the Hi3D v1.0 checkout, so refinement runs on Windows. |
 | `bootstrap_hunyuan_cuda.py` | Install Hunyuan3D-2.1 for Linux with an NVIDIA card: Tencent's own code, built for CUDA. |
 | `bootstrap_hunyuan_rocm.py` | Install Hunyuan3D-2.1 for Linux with an AMD card: Tencent's own code, built with HIP. |
@@ -46,15 +47,17 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_hunyuan_xiong.py` | Set up Hunyuan3D-MLX (Xiong, full pipeline): both Python environments, then the weights. |
 | `bootstrap_matte.py` | Install BiRefNet-lite, the background remover every backend uses once it is present. |
 | `bootstrap_upscaler.py` | Install Real-ESRGAN x4plus, the 4x upscaler Hero face uses on the head crop. |
-| `bootstrap_flux_image.py` | Install FLUX.2 [klein] 4B, the studio's default picture engine, Apache-2.0 throughout. |
+| `bootstrap_flux_image.py` | Install FLUX.2 [klein] 4B, the studio's default picture engine, MIT throughout. |
 | `bootstrap_qwen_image.py` | Install the text-to-image route: a stable-diffusion.cpp binary and Qwen-Image weights. |
+| `bootstrap_diffusers.py` | Install the diffusers picture runtime: its own venv with torch and diffusers. |
 | `bootstrap_marigold_v2.py` | Install Marigold V2's native predictor: its own venv, then the weights if missing. |
 | `bootstrap_wativo.py` | Install WTiVo, the fast watertight rebuild, into vendor/wativo with its own interpreter. |
 | `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac, NVIDIA or AMD. |
 | `hero_route.py` | Build a hero character: a full-body model with a high-detail head grafted on, as one GLB. |
 | `hero_blender.py` | Join a grafted head and body into one object, or render a check sheet, in a background Blender. |
 | `upscale_esrgan.py` | Upscale a picture 4x with Real-ESRGAN, then resize it to a square of SIZE pixels. |
-| `make_back_view.py` | Draw the back of a subject from its front picture, for a front + back 3D build. |
+| `make_back_view.py` | Draw the back or a side of a subject from its front picture, for a multi-view 3D build. |
+| `diffusers_generate.py` | Draw one picture with a raw diffusion checkpoint, through `diffusers`. |
 | `trellis_space_generate.py` | Full image -> GLB generation through the CLEAN `trellis-space-mac` port on Apple Silicon. |
 | `trellis_cuda_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an NVIDIA card. |
 | `trellis_rocm_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an AMD card. |
@@ -115,6 +118,8 @@ The asset's surface, as opposed to its shape.
 | `marigold_v2_predict.py` | Predict Marigold V2 depth, normals, and albedo from one image, natively. |
 | `marigold_finish.py` | De-light a generated GLB and bake front+back normal maps with Marigold V2. |
 | `surface_detail.py` | Give a generated asset a surface: normal relief and roughness variation. |
+| `ultratex_views.py` | Prepare the six-view UltraTex dataset for a mesh: render, tiles, reference. |
+| `ultratex_bake_views.py` | Bake UltraTex's generated view canvases onto the mesh's own UVs. |
 | `attach_normal_map.py` | Attach a baked normal map to a GLB's material. |
 | `restore_pbr_material.py` | Re-attach the metallicRoughness map that `--material-mode matte` orphaned. |
 | `fix_glb_opaque_material.py` | Make an existing TRELLIS GLB opaque and single-sided without rebaking it. |
@@ -180,6 +185,7 @@ Heavier edits that need Blender's own operators rather than trimesh.
 | `blender_visibility_cull.py` | Delete every face never seen from outside the mesh, headless. |
 | `blender_retopo_bake.py` | Quad-retopologise a generated mesh and transfer its texture onto the clean topology. |
 | `blender_hi3d_transfer.py` | Transfer the old mesh's texture onto Hi3D-refined geometry by ray-cast baking. |
+| `blender_render_texverse_views.py` | Render the six canonical UltraTex views of a mesh: world normals and silhouette. |
 | `blender_split_props.py` | Split a multi-prop GLB into one upright, named object per prop, headless. |
 | `blender_reunwrap_bake.py` | Re-unwrap a generated mesh into coherent UV islands and re-bake its texture, headless. |
 | `blender_split_regions.py` | Split a generated mesh into per-region material slots, each with its own texture. |
@@ -233,6 +239,7 @@ tuning checklist. Manual fitting and visual weight/deformation review remain req
 | Script | What it does |
 |---|---|
 | `patch_trellis_space_core.py` | Apply the minimal inference-preserving Mac patch to a Microsoft Space tree. |
+| `patch_ultratex_speed.py` | Empty-prompt fast path for the vendored UltraTex inference checkout. |
 | `patch_trellis_metal_backends.py` | Replay proven Ar3DRAHub fixes over pinned Pedro Metal backends. |
 | `patch_trellis_face_cap.py` | Lift the hard 200,000-face cap in the Mac port's `generate.py`. |
 | `patch_trellis_highpoly.py` | Export TRELLIS' full-resolution mesh before it is simplified away. |

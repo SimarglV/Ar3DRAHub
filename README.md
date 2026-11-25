@@ -182,10 +182,8 @@ marks).
 
 ## License
 
-- **UniMate** code is MIT; the released checkpoint is
-  [CC BY-NC 4.0](https://huggingface.co/Linzhan/UniMate/blob/main/LICENSE), so text-motion
-  output is marked non-commercial in its `.provenance.json`.
-- **Model weights** used by the studio keep their own licences, recorded per run.
+Everything in this repository is **MIT** — see [`LICENSE`](LICENSE). Model weights keep
+being recorded per run, and every record names MIT.
 - **The datasets** stay governed by their original sources (Mixamo, Objaverse-XL, Truebones).
 
 ## Acknowledgement

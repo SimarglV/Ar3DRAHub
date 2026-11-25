@@ -20,7 +20,7 @@ import bootstrap_marigold_v2 as boot  # noqa: E402
 def test_announcement_names_backend_route_size_and_licence():
     text = boot.announcement()
     assert "Marigold V2" in text and "diffusers" in text and "NVIDIA" in text
-    assert "22.6 GB" in text and "Apache-2.0" in text
+    assert "22.6 GB" in text and "MIT" in text
     for repo, _, size in boot.WEIGHTS:
         assert repo in text and f"{size:.2f}" in text
 

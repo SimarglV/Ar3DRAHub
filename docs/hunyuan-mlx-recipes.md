@@ -35,5 +35,5 @@ input.png output.glb --model 2.0 [flags]`
 
 **Paint stage** (`hunyuan_mlx/paint/scripts/run_paint_pbr.py`) is shared by every shape
 model above, including dgrauet's, which stays cloned separately in `vendor/hunyuan-mlx`
-because its code is Tencent-licensed. Keep `decimation_target` at or under 500,000: the
+because its code is third-party. Keep `decimation_target` at or under 500,000: the
 paint stage's UV unwrap stalls above that.

@@ -157,6 +157,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Load the whole pipeline on the GPU (default: sequential CPU offload)",
     )
+    hi3d.add_argument(
+        "--hi3d-cascade",
+        action="store_true",
+        help="Climb 512 -> 1024 -> 1536, each rung refining the previous rung's "
+             "output (the PixelArtistry chain) instead of one refinement of the "
+             "original mesh",
+    )
     return parser
 
 
@@ -269,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
                     setattr(args, key, parameters[key])
             if "hi3d_offload" in parameters:
                 args.hi3d_offload = bool(parameters["hi3d_offload"])
+            if "hi3d_cascade" in parameters:
+                args.hi3d_cascade = bool(parameters["hi3d_cascade"])
             if "workflow" in manifest_data:
                 workflow = manifest_data["workflow"]
                 if not isinstance(workflow, str) or not workflow:
@@ -409,6 +418,7 @@ def main(argv: list[str] | None = None) -> int:
                     steps=args.hi3d_steps,
                     seed=args.hi3d_seed,
                     cpu_offload=args.hi3d_offload,
+                    cascade=args.hi3d_cascade,
                 ),
                 log=lambda line: print(line, file=sys.stderr),
             )
@@ -457,6 +467,7 @@ def main(argv: list[str] | None = None) -> int:
         "hi3d_steps": args.hi3d_steps if args.hi3d else None,
         "hi3d_seed": args.hi3d_seed if args.hi3d else None,
         "hi3d_offload": args.hi3d_offload if args.hi3d else None,
+        "hi3d_cascade": args.hi3d_cascade if args.hi3d else None,
         "coarse_mesh": str(coarse_mesh) if args.hi3d else None,
     }
     result, sidecar = finalize_output(

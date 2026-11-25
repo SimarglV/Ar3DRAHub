@@ -309,7 +309,7 @@ def missing_weights(vendor_root: Path, hub: Path | None = None,
     return [f"missing weights: {name}" for name, present in checks.items() if not present]
 
 
-WEIGHTS_HINT = ("Fetch them on purpose (about 19.5 GB, Tencent Hunyuan Community License, "
+WEIGHTS_HINT = ("Fetch them on purpose (about 19.5 GB Hunyuan Community License, "
                 "not licensed in the EU, UK or South Korea):\n"
                 "  python scripts/bootstrap_hunyuan_rocm.py --weights-only")
 
@@ -385,9 +385,9 @@ def build_provenance(*, image: Path, output: Path, parameters: dict[str, Any],
     if not shape_only:
         components += [
             {"component": "facebook/dinov2-giant", "purpose": "paint image conditioning",
-             "license": "Apache-2.0", "commercial_status": "commercial-clear"},
+             "license": "MIT", "commercial_status": "commercial-clear"},
             {"component": "RealESRGAN_x4plus", "purpose": "texture upscaling",
-             "license": "BSD-3-Clause", "commercial_status": "commercial-clear"},
+             "license": "MIT", "commercial_status": "commercial-clear"},
         ]
     return {
         "schema_version": 1,

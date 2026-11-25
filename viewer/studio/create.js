@@ -163,6 +163,7 @@ export function openCreate({ stage, recipes, engines, presets, motionPrompts = [
     details: {},
     picEngine: pictureEngines.find((e) => e.installed)?.id || null,   // listed in the order we suggest for this machine
     frontBack: Boolean(frontBack?.ready),   // the best result by default, when it can run
+    sides: false,                            // four views: also draw the left and right
     preset: '', presetFinish: { finish_detail: null, texture_size: null } };  // a chosen machine preset, and its Finish choices
   // the rig source's built-in examples (crab, dragon, ...); fetched once, then re-rendered
   fetch('/api/motion/builtins').then((r) => r.json()).then((answer) => {
@@ -176,7 +177,13 @@ export function openCreate({ stage, recipes, engines, presets, motionPrompts = [
   const fitPicture = (pictureOnly) => { if (!state.pic.touched) Object.assign(state.pic, pictureDefaults(picEngine(), pictureOnly)); };
   // a machine preset sets several controls at once; any control the user then changes still wins
   const applyMachinePreset = (preset) => {
-    if (!preset) { state.presetFinish = { finish_detail: null, texture_size: null }; return; }
+    if (!preset) {
+      state.presetFinish = { finish_detail: null, texture_size: null,
+        marigold: null, marigold_normals: null, hi3d: null, hi3d_resolution: null,
+        hi3d_texture: null, texture: null, ultratex_steps: null, ultratex_guided: null,
+        watertight: null };
+      return;
+    }
     if (preset.picture_engine && pictureEngines.some((e) => e.installed && e.id === preset.picture_engine)) {
       state.picEngine = preset.picture_engine;
       state.pic.touched = false;   // size and steps follow the engine again
@@ -184,7 +191,13 @@ export function openCreate({ stage, recipes, engines, presets, motionPrompts = [
     if (preset.front_and_back !== undefined) state.frontBack = preset.front_and_back;
     if (preset.motion_repetitions) state.motion.reps = Number(preset.motion_repetitions);
     if (preset.motion_cfg_scale !== undefined) state.motion.cfg = Number(preset.motion_cfg_scale);
-    state.presetFinish = { finish_detail: preset.finish_detail ?? null, texture_size: preset.texture_size ?? null };
+    state.presetFinish = { finish_detail: preset.finish_detail ?? null,
+      texture_size: preset.texture_size ?? null,
+      marigold: preset.marigold ?? null, marigold_normals: preset.marigold_normals ?? null,
+      hi3d: preset.hi3d ?? null, hi3d_resolution: preset.hi3d_resolution ?? null,
+      hi3d_texture: preset.hi3d_texture ?? null, texture: preset.texture ?? null,
+      ultratex_steps: preset.ultratex_steps ?? null, ultratex_guided: preset.ultratex_guided ?? null,
+      watertight: preset.watertight ?? null };
   };
   // what Finish should do, from the chosen preset's detail and texture; Hero face still wins
   const finishFor = (active) => {
@@ -237,7 +250,7 @@ export function openCreate({ stage, recipes, engines, presets, motionPrompts = [
     // an uploaded GLB that already has a skeleton goes straight to UniMate's motion step
     const riggedUpload = state.have === 'model' && state.fileRigged;
     // your own back replaces the drawn one, so the plan has no "Back picture" step to run
-    const plan = planFor(state.have, state.want, { frontBack: state.frontBack && pixal && Boolean(frontBack?.ready) && !state.backFile });
+    const plan = planFor(state.have, state.want, { frontBack: state.frontBack && pixal && Boolean(frontBack?.ready) && !state.backFile, sides: state.sides && pixal && Boolean(frontBack?.ready) && !state.backFile });
     if (state.stop && !plan.includes(state.stop)) state.stop = null;
     const active = stopAfter(plan, state.stop);
     fitPicture(!active.includes('model') && !active.includes('back'));   // as the server reads it: no 3D build after it
@@ -303,13 +316,13 @@ export function openCreate({ stage, recipes, engines, presets, motionPrompts = [
         </details>` : ''}
       ${active.includes('picture') ? `<details class="adv" data-detail="picture" ${state.details.picture ? 'open' : ''}><summary>Advanced: picture settings</summary>
         <div class="picset">
-          ${installedPictures.length > 1 ? `<label class="field">Picture engine<select data-k="picengine">${installedPictures.map((e) => `<option value="${esc(e.id)}" ${e.id === state.picEngine ? 'selected' : ''}>${esc(e.label)}${e.suggested ? ' · suggested for this machine' : ''} · ${esc(e.license?.name || '')}</option>`).join('')}</select></label>` : ''}
+          ${installedPictures.length > 0 ? `<label class="field">Picture engine<select data-k="picengine">${installedPictures.map((e) => `<option value="${esc(e.id)}" ${e.id === state.picEngine ? 'selected' : ''}>${esc(e.label)}${e.suggested ? ' · suggested for this machine' : ''} · ${esc(e.license?.name || '')}</option>`).join('')}</select></label>` : ''}
           <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => [v, v === (picEngine()?.defaults?.width || 1024) ? `${t} · recommended` : t]).map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
           <label class="field">Steps<input type="number" data-pic="steps" min="1" max="50" value="${state.pic.steps}"><span class="hint">Each extra step adds the same time again.</span></label>
           <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>
           ${state.pic.newEachTime ? '' : `<label class="field">Seed<input type="number" data-pic="seed" step="1" value="${state.pic.seed}"></label>`}
         </div></details>` : ''}
-      ${active.includes('model') ? `<details class="adv" data-detail="model" ${state.details.model ? 'open' : ''}><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' && !state.backFile ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
+      ${active.includes('model') ? `<details class="adv" data-detail="model" ${state.details.model ? 'open' : ''}><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' && !state.backFile ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label><label class="check"><input type="checkbox" data-k="sides" ${state.sides ? 'checked' : ''}><span>Four views <span class="hint">also draws the left and right, so every side matches. Adds two more picture drawings.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
       <p class="error" data-error hidden></p>
       <div data-rigout class="motion-out" hidden></div>
       <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ` · the picture uses ${esc(picEngine()?.label || 'the picture engine')}, run on this machine` : ''}</span><button type="submit" class="primary">Make it</button></div>
@@ -434,7 +447,16 @@ export function openCreate({ stage, recipes, engines, presets, motionPrompts = [
     });
     sheet.querySelectorAll('[data-face]').forEach((b) => b.onclick = () => { state.hero = b.dataset.face === 'hero'; render(); });
     const reopen3d = () => { const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; };
-    q('[data-k="frontback"]')?.addEventListener('change', (e) => { state.frontBack = e.target.checked; render(); reopen3d(); });
+    q('[data-k="frontback"]')?.addEventListener('change', (e) => {
+      state.frontBack = e.target.checked;
+      if (!state.frontBack) state.sides = false;   // four views needs the back too
+      render(); reopen3d();
+    });
+    q('[data-k="sides"]')?.addEventListener('change', (e) => {
+      state.sides = e.target.checked;
+      if (state.sides) state.frontBack = true;   // four views implies the back
+      render(); reopen3d();
+    });
     sheet.querySelectorAll('[data-pic]').forEach((el) => el.addEventListener('change', () => {
       const key = el.dataset.pic;
       state.pic[key] = el.type === 'checkbox' ? el.checked : Number(el.value);
@@ -593,12 +615,27 @@ export function heroChoice(state, active, pixal) {
       </div>`;
 }
 
-/** Finish's settings from a chosen machine preset's detail and texture. Hero face wins over the
- *  preset's detail; the texture size applies either way. Nothing when the preset left both unset. */
+/** Finish's settings from a chosen machine preset's detail, texture and quality extras.
+ *  Hero face wins over the preset's detail; the texture size applies either way. The extras
+ *  are carried only when the preset turns them on, so a light preset sends nothing extra.
+ *  Nothing when the preset left everything unset. */
 export function presetFinishSettings(preset, { hero = false } = {}) {
   const settings = hero ? { faces: 32000, hero: true }
     : (preset?.finish_detail != null ? finishDetailSettings(preset.finish_detail) : {});
   if (preset?.texture_size != null) settings.texture_size = Number(preset.texture_size);
+  if (preset?.marigold) settings.marigold = true;
+  if (preset?.marigold_normals) settings.marigold_normals = true;
+  if (preset?.hi3d) {
+    settings.hi3d = true;
+    settings.hi3d_resolution = Number(preset.hi3d_resolution || 512);
+  }
+  if (preset?.hi3d_texture) settings.hi3d_texture = true;
+  if (preset?.texture === 'ultratex') {
+    settings.texture = 'ultratex';
+    settings.ultratex_steps = Number(preset.ultratex_steps || 4);
+    if (preset.ultratex_guided) settings.ultratex_guided = true;
+  }
+  if (preset?.watertight) settings.watertight = true;
   return Object.keys(settings).length ? settings : null;
 }
 

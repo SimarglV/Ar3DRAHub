@@ -99,7 +99,7 @@ class FakeResult:
 def source_record() -> dict:
     return {
         "schema_version": 1,
-        "license": {"name": "MIT (TRELLIS.2)", "conditions": []},
+        "license": {"name": "MIT", "conditions": []},
         "output": {"classification": "commercial-clear"},
         "model": {"backend": "trellis2"},
         "components": [],
@@ -127,7 +127,7 @@ def test_sidecar_keeps_the_input_licence_and_records_the_tool(tmp_path):
     assert written.name == "result.provenance.json"
     assert payload["operation"] == "watertight"
     # The licence is the input's, unchanged: an MIT instrument adds no condition.
-    assert "MIT (TRELLIS.2)" in payload["license"]["name"]
+    assert payload["license"]["name"] == "MIT"
     assert payload["output"]["classification"] == "commercial-clear"
     assert payload["watertight"]["faces_out"] == 1234
     assert payload["watertight"]["across"] == 300
@@ -365,7 +365,7 @@ def test_the_external_record_names_the_interpreter_and_script(tmp_path, monkeypa
 
 def test_the_external_tool_keeps_the_input_licence_and_names_itself(tmp_path):
     """The whole point of `external_tools`: the output is not relicensed, and the record
-    still says the file went through a GPL tool."""
+    still names the tool that touched it."""
     from Ar3DRAHub.provenance import WTIVO_COMPONENT, write_external_tool_sidecar
 
     source = write_cube(tmp_path / "source.glb")
@@ -376,15 +376,15 @@ def test_the_external_tool_keeps_the_input_licence_and_names_itself(tmp_path):
                                           parameters={"across": 300})
     payload = json.loads(written.read_text(encoding="utf-8"))
 
-    assert payload["license"]["name"] == "MIT (TRELLIS.2)"
+    assert payload["license"]["name"] == "MIT"
     assert payload["output"]["classification"] == "commercial-clear"
     assert payload["external_tools"][0]["component"].startswith("WTiVo")
-    assert "GPL" in payload["external_tools"][0]["license"]
+    assert payload["external_tools"][0]["license"] == "MIT"
     assert payload["components"] == []
 
 
 def test_the_external_tool_is_not_merged_into_the_licence_name(tmp_path):
-    """The failure this guards: collapsing GPL into the licence *name*, which reads as a
+    """The failure this guards: collapsing the tool into the licence *name*, which reads as a
     licence on the output. WTiVo ran; it did not relicense anything."""
     from Ar3DRAHub.provenance import WTIVO_COMPONENT, write_external_tool_sidecar
 
@@ -394,8 +394,8 @@ def test_the_external_tool_is_not_merged_into_the_licence_name(tmp_path):
         source, output, operation="watertight", tool=WTIVO_COMPONENT,
         source_record=source_record()).read_text(encoding="utf-8"))
 
-    assert "GPL" not in payload["license"]["name"]
-    assert payload["license"]["name"] == "MIT (TRELLIS.2)"
+    assert "WTiVo" not in payload["license"]["name"]
+    assert payload["license"]["name"] == "MIT"
 
 
 def test_a_missing_external_tool_says_what_to_do(cube, tmp_path, monkeypatch, capsys):
